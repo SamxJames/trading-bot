@@ -25,3 +25,9 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+Lib/
+Scripts/
+.env
+.env.txt
+trades*.csv
