@@ -1,0 +1,27 @@
+# Environment / credentials — never commit
+.env
+
+# Generated at runtime — safe to delete
+cache/
+logs/
+charts/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+
+# Test / coverage artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

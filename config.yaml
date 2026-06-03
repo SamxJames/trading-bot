@@ -1,0 +1,35 @@
+# Trading bot configuration
+# Credentials (APCA_API_KEY_ID etc.) live in .env — never put them here.
+
+# Tickers to watch
+tickers:
+  - SPY
+
+# Strategy to run (must match a key in bot/strategies/registry.py)
+strategy: ema_cross_filtered
+
+# --- Data ---
+# Use daily bars to avoid EMA whipsawing on intraday noise.
+# On 1Day bars with 20/50 EMAs, expect roughly 5-15 trades per 6-month backtest.
+# Switch to 1Min only for intraday experimentation.
+timeframe: 1Day
+
+# --- EMA crossover parameters (suit daily bars) ---
+fast_period: 20
+slow_period: 50
+
+# --- Filtered strategy (ema_cross_filtered) ---
+trend_sma_period: 200 # only enter if close > SMA(200) — trend filter
+rsi_period: 14 # RSI period (used by both filtered EMA and RSI strategies)
+rsi_oversold: 30 # RSIStrategy: buy when RSI crosses up through this
+rsi_overbought: 70 # block BUY (filtered EMA) / sell (RSI strategy) at this level
+stop_loss_pct: 1.5 # exit trade if price drops this % below entry
+
+# --- Risk manager ---
+max_positions: 3
+max_notional_per_trade: 500
+drawdown_halt_pct: 5
+
+# --- Notifications (optional) ---
+# Leave blank to disable. Set via DISCORD_WEBHOOK_URL env var in production.
+discord_webhook_url: ""

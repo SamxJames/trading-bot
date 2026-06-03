@@ -1,0 +1,29 @@
+[
+  {
+    "ticker": "AAPL",
+    "timestamp": "2024-01-02T14:30:00Z",
+    "open": 185.10,
+    "high": 185.50,
+    "low": 184.80,
+    "close": 185.20,
+    "volume": 12400
+  },
+  {
+    "ticker": "AAPL",
+    "timestamp": "2024-01-02T14:31:00Z",
+    "open": 185.20,
+    "high": 185.70,
+    "low": 185.00,
+    "close": 185.60,
+    "volume": 9800
+  },
+  {
+    "ticker": "AAPL",
+    "timestamp": "2024-01-02T14:32:00Z",
+    "open": 185.60,
+    "high": 186.10,
+    "low": 185.40,
+    "close": 185.90,
+    "volume": 11200
+  }
+]
