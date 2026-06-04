@@ -1,15 +1,15 @@
 # Trading bot configuration
 # Credentials (APCA_API_KEY_ID etc.) live in .env — never put them here.
 
-# Tickers to watch — diversified across equities, small caps, and commodities
+# Tickers to watch — diversified across equities and commodities
 tickers:
   - SPY   # S&P 500 — large cap US equities
   - QQQ   # Nasdaq 100 — tech-heavy, different momentum profile to SPY
-  - IWM   # Russell 2000 — small caps (under review — see backtest notes)
   - GLD   # Gold ETF — non-correlated to equities, good in risk-off periods
 
-# TLT removed: 0% win rate across 3 trades (2023-2025), structurally unsuited
-# to a long-only EMA trend strategy during a prolonged bond bear market.
+# Removed:
+# TLT — 0% win rate, long-only EMA has no edge in a bond bear market
+# IWM — 25% win rate, 0.22x R:R, negative Sharpe across all available data
 
 # Strategy to run (must match a key in bot/strategies/registry.py)
 strategy: ema_cross_filtered
@@ -29,7 +29,7 @@ rsi_overbought: 70    # block BUY if RSI >= this level
 stop_loss_pct: 1.5    # exit trade if price drops this % below entry
 
 # --- Risk manager ---
-max_positions: 4              # one per ticker
+max_positions: 3              # one per ticker
 max_notional_per_trade: 500
 drawdown_halt_pct: 5
 
