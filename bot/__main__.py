@@ -76,6 +76,16 @@ def main() -> None:
         help="Simulate the job without placing real orders",
     )
 
+    # ── weekly ────────────────────────────────────────────────────────────────
+    weekly = subparsers.add_parser(
+        "weekly",
+        help="Post weekly performance summary to Discord",
+    )
+    weekly.add_argument(
+        "--dry-run", dest="dry_run", action="store_true", default=False,
+        help="Print summary to console instead of posting to Discord",
+    )
+
     args = parser.parse_args()
 
     # ── dispatch ──────────────────────────────────────────────────────────────
@@ -129,6 +139,15 @@ def main() -> None:
         from bot.job import run_job
         try:
             asyncio.run(run_job(dry_run=args.dry_run))
+        except KeyboardInterrupt:
+            pass
+        except Exception:
+            sys.exit(1)
+
+    elif args.command == "weekly":
+        from bot.weekly_summary import run_weekly_summary
+        try:
+            asyncio.run(run_weekly_summary(dry_run=args.dry_run))
         except KeyboardInterrupt:
             pass
         except Exception:
