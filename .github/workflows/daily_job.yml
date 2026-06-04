@@ -2,7 +2,7 @@ name: Daily Trading Job
 
 on:
   schedule:
-    - cron: '15 20 * * 1-5'   # 8:15 pm UTC = 4:15 pm ET (Mon-Fri)
+    - cron: '45 20 * * 1-5'   # 8:45 pm UTC = 4:45 pm ET (Mon-Fri) — allows Alpaca 45min to publish daily bars
   workflow_dispatch:            # allows manual trigger from the GitHub Actions UI
 
 env:
