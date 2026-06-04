@@ -1,38 +1,28 @@
 # Trading bot configuration
 # Credentials (APCA_API_KEY_ID etc.) live in .env — never put them here.
 
-# Tickers to watch — diversified across equities and commodities
 tickers:
-  - SPY   # S&P 500 — large cap US equities
-  - QQQ   # Nasdaq 100 — tech-heavy, different momentum profile to SPY
-  - GLD   # Gold ETF — non-correlated to equities, good in risk-off periods
+  - SPY
+  - QQQ
+  - GLD
+  - AAPL
+  - MSFT
+  - NVDA
 
-# Removed:
-# TLT — 0% win rate, long-only EMA has no edge in a bond bear market
-# IWM — 25% win rate, 0.22x R:R, negative Sharpe across all available data
-
-# Strategy to run (must match a key in bot/strategies/registry.py)
 strategy: ema_cross_filtered
-
-# --- Data ---
 timeframe: 1Day
 
-# --- EMA crossover parameters (suit daily bars) ---
 fast_period: 20
 slow_period: 50
 
-# --- Filtered strategy (ema_cross_filtered) ---
-trend_sma_period: 200 # only enter if close > SMA(200) — trend filter
-rsi_period: 14        # RSI period
-rsi_oversold: 30      # RSIStrategy: buy when RSI crosses up through this
-rsi_overbought: 70    # block BUY if RSI >= this level
-stop_loss_pct: 1.5    # exit trade if price drops this % below entry
+trend_sma_period: 150  # relaxed from 200 — less restrictive trend filter
+rsi_period: 14
+rsi_oversold: 30
+rsi_overbought: 75     # relaxed from 70 — lets more BUY signals through
+stop_loss_pct: 2.5     # widened from 1.5 — gives trades more room to breathe
 
-# --- Risk manager ---
-max_positions: 3              # one per ticker
+max_positions: 6
 max_notional_per_trade: 500
 drawdown_halt_pct: 5
 
-# --- Notifications (optional) ---
-# Set DISCORD_WEBHOOK_URL in .env (local) or as a GitHub Actions secret (production).
-# Do not set discord_webhook_url here — it is a credential, not a config value.
+# Notifications: set DISCORD_WEBHOOK_URL in .env or GitHub Actions secrets
