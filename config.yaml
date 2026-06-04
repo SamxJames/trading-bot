@@ -31,5 +31,5 @@ max_notional_per_trade: 500
 drawdown_halt_pct: 5
 
 # --- Notifications (optional) ---
-# Leave blank to disable. Set via DISCORD_WEBHOOK_URL env var in production.
-discord_webhook_url: ""
+# Set DISCORD_WEBHOOK_URL in .env (local) or as a GitHub Actions secret (production).
+# Do not set discord_webhook_url here — it is a credential, not a config value.

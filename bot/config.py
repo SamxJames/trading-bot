@@ -68,9 +68,15 @@ class YamlConfigSource(PydanticBaseSettingsSource):
         return value, field_name, self.field_is_complex(field_info)
 
     def __call__(self) -> Dict[str, Any]:
-        # Filter out None so YAML keys with no value don't mask env-var defaults.
-        # Empty strings are kept (e.g. discord_webhook_url: "").
-        return {k: v for k, v in self._data.items() if v is not None}
+        # Only pass through keys that are defined fields on the model.
+        # This prevents stale or credential keys in config.yaml from
+        # triggering pydantic extra_forbidden validation errors.
+        known = set(self.settings_cls.model_fields.keys())
+        return {
+            k: v
+            for k, v in self._data.items()
+            if v is not None and k in known
+        }
 
 
 class Settings(BaseSettings):
