@@ -1,21 +1,20 @@
 # Trading bot configuration
 # Credentials (APCA_API_KEY_ID etc.) live in .env — never put them here.
 
-# Tickers to watch — diversified across equities, small caps, commodities, bonds
+# Tickers to watch — diversified across equities, small caps, and commodities
 tickers:
   - SPY   # S&P 500 — large cap US equities
   - QQQ   # Nasdaq 100 — tech-heavy, different momentum profile to SPY
-  - IWM   # Russell 2000 — small caps, less correlated to large cap
+  - IWM   # Russell 2000 — small caps (under review — see backtest notes)
   - GLD   # Gold ETF — non-correlated to equities, good in risk-off periods
-  - TLT   # 20yr Treasury bonds — tends to move opposite to equities
+
+# TLT removed: 0% win rate across 3 trades (2023-2025), structurally unsuited
+# to a long-only EMA trend strategy during a prolonged bond bear market.
 
 # Strategy to run (must match a key in bot/strategies/registry.py)
 strategy: ema_cross_filtered
 
 # --- Data ---
-# Use daily bars to avoid EMA whipsawing on intraday noise.
-# On 1Day bars with 20/50 EMAs, expect roughly 5-15 trades per 6-month backtest.
-# Switch to 1Min only for intraday experimentation.
 timeframe: 1Day
 
 # --- EMA crossover parameters (suit daily bars) ---
@@ -24,15 +23,15 @@ slow_period: 50
 
 # --- Filtered strategy (ema_cross_filtered) ---
 trend_sma_period: 200 # only enter if close > SMA(200) — trend filter
-rsi_period: 14        # RSI period (used by both filtered EMA and RSI strategies)
+rsi_period: 14        # RSI period
 rsi_oversold: 30      # RSIStrategy: buy when RSI crosses up through this
-rsi_overbought: 70    # block BUY (filtered EMA) / sell (RSI strategy) at this level
+rsi_overbought: 70    # block BUY if RSI >= this level
 stop_loss_pct: 1.5    # exit trade if price drops this % below entry
 
 # --- Risk manager ---
-max_positions: 5              # increased from 3 to allow all 5 tickers to hold simultaneously
-max_notional_per_trade: 500   # USD cap per trade
-drawdown_halt_pct: 5          # halt all trading if equity drops 5% from session start
+max_positions: 4              # one per ticker
+max_notional_per_trade: 500
+drawdown_halt_pct: 5
 
 # --- Notifications (optional) ---
 # Set DISCORD_WEBHOOK_URL in .env (local) or as a GitHub Actions secret (production).
