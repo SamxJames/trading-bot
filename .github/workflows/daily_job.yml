@@ -41,3 +41,10 @@ jobs:
           APCA_BASE_URL:       ${{ secrets.APCA_BASE_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python -m bot job
+
+      - name: Sync trades_live.csv to Google Drive
+        if: always()   # run even if the trading job had a non-zero exit
+        env:
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          GDRIVE_FILE_ID: "1NOA5b7lYQkp7i6czpqrpnJ9WWfFP3wg-"
+        run: python scripts/sync_to_drive.py
