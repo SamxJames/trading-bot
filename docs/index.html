@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:        #0c0e0f;
+    --bg2:       #131618;
+    --bg3:       #1a1e20;
+    --border:    #252a2d;
+    --text:      #e8eaeb;
+    --muted:     #5a6066;
+    --accent:    #00e5a0;
+    --accent2:   #0090ff;
+    --red:       #ff4b4b;
+    --amber:     #f5a623;
+    --font-head: 'Syne', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── layout ── */
+  .shell {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 40px 0 32px;
+    border-bottom: 1px solid var(--border);
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .wordmark {
+    font-family: var(--font-head);
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--text);
+  }
+
+  .wordmark span { color: var(--accent); }
+
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+
+  .status-dot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+  }
+
+  .dot.red   { background: var(--red);   box-shadow: 0 0 6px var(--red);   }
+  .dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+
+  .btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--bg);
+    background: var(--accent);
+    border: none;
+    border-radius: 4px;
+    padding: 7px 14px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; }
+
+  .btn.secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn.secondary:hover { color: var(--text); border-color: var(--muted); }
+
+  /* ── KPI strip ── */
+  .kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 32px 0;
+  }
+
+  .kpi {
+    background: var(--bg2);
+    padding: 20px 20px 18px;
+  }
+
+  .kpi-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .kpi-value {
+    font-family: var(--font-head);
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text);
+  }
+
+  .kpi-value.pos { color: var(--accent); }
+  .kpi-value.neg { color: var(--red); }
+  .kpi-value.neu { color: var(--amber); }
+
+  .kpi-sub {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 5px;
+  }
+
+  /* ── section grid ── */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  @media (max-width: 800px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .card-title {
+    font-family: var(--font-head);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+
+  .card-body { padding: 20px; }
+
+  canvas { max-height: 220px; }
+
+  /* ── ticker table ── */
+  .ticker-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .ticker-table th {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-align: right;
+    padding: 0 0 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .ticker-table th:first-child { text-align: left; }
+
+  .ticker-table td {
+    padding: 10px 0;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ticker-table td:first-child { text-align: left; }
+  .ticker-table tr:last-child td { border-bottom: none; }
+
+  .ticker-badge {
+    font-family: var(--font-head);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .pos { color: var(--accent); }
+  .neg { color: var(--red); }
+  .neu { color: var(--amber); }
+
+  /* ── stat rows ── */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  .stat-row:last-child { border-bottom: none; }
+
+  .stat-label { color: var(--muted); }
+
+  /* ── actions panel ── */
+  .actions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .action-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .action-title {
+    font-family: var(--font-head);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .action-desc {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.5;
+    flex: 1;
+  }
+
+  /* ── runs table ── */
+  .run-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .run-row:last-child { border-bottom: none; }
+
+  .run-status {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .run-status.success { background: var(--accent); }
+  .run-status.failure { background: var(--red); }
+  .run-status.running { background: var(--amber); }
+
+  .run-date { color: var(--text); font-weight: 500; min-width: 130px; }
+  .run-signal { margin-left: auto; color: var(--accent); }
+
+  /* ── zero state ── */
+  .zero-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--muted);
+  }
+
+  .zero-state .big { font-size: 40px; margin-bottom: 12px; line-height: 1; }
+  .zero-state p { font-size: 12px; }
+
+  /* ── loading ── */
+  #loading {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-head);
+    font-size: 14px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    z-index: 100;
+    transition: opacity 0.4s;
+  }
+
+  #loading.hidden { opacity: 0; pointer-events: none; }
+
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 12px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── tabs ── */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin: 28px 0 24px;
+  }
+
+  .tab {
+    font-family: var(--font-head);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    padding: 10px 20px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s;
+    user-select: none;
+  }
+
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── progress bar ── */
+  .progress-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 6px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.6s ease;
+  }
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div>Loading</div>
+
+<div class="shell">
+
+  <header>
+    <div>
+      <div class="wordmark">bot<span>.</span>dashboard</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+        EMA crossover · paper trading · SPY QQQ GLD AAPL NVDA
+      </div>
+    </div>
+    <div class="header-meta">
+      <div class="status-dot" id="sync-status">
+        <div class="dot amber" id="sync-dot"></div>
+        <span id="sync-label">Connecting…</span>
+      </div>
+      <a id="actions-link" href="https://github.com/SamxJames/trading-bot/actions" target="_blank" class="btn secondary">
+        GitHub Actions ↗
+      </a>
+    </div>
+  </header>
+
+  <!-- KPI strip -->
+  <div class="kpi-strip" id="kpi-strip">
+    <div class="kpi">
+      <div class="kpi-label">Account equity</div>
+      <div class="kpi-value" id="kpi-equity">—</div>
+      <div class="kpi-sub" id="kpi-equity-sub">Starting $100,000</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Total PnL</div>
+      <div class="kpi-value" id="kpi-pnl">—</div>
+      <div class="kpi-sub" id="kpi-pnl-sub">All time</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Win rate</div>
+      <div class="kpi-value" id="kpi-winrate">—</div>
+      <div class="kpi-sub" id="kpi-trades-sub">— trades</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Sharpe ratio</div>
+      <div class="kpi-value" id="kpi-sharpe">—</div>
+      <div class="kpi-sub">Annualised</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Max drawdown</div>
+      <div class="kpi-value" id="kpi-drawdown">—</div>
+      <div class="kpi-sub">Peak to trough</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">7-day PnL</div>
+      <div class="kpi-value" id="kpi-7d">—</div>
+      <div class="kpi-sub" id="kpi-7d-sub">— trades this week</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('performance')">Performance</div>
+    <div class="tab" onclick="switchTab('tickers')">Tickers</div>
+    <div class="tab" onclick="switchTab('runs')">Run bot</div>
+  </div>
+
+  <!-- Tab: Performance -->
+  <div class="tab-panel active" id="tab-performance">
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Equity curve</div>
+        </div>
+        <div class="card-body">
+          <canvas id="equity-chart"></canvas>
+          <div id="equity-zero" class="zero-state" style="display:none">
+            <div class="big">📈</div>
+            <p>No closed trades yet.<br>Check back after the first signal fires.</p>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">PnL distribution</div>
+        </div>
+        <div class="card-body">
+          <canvas id="pnl-chart"></canvas>
+          <div id="pnl-zero" class="zero-state" style="display:none">
+            <div class="big">📊</div>
+            <p>Waiting for trades.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Risk metrics</div></div>
+        <div class="card-body" id="risk-stats"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Trade quality</div></div>
+        <div class="card-body" id="trade-quality"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Exit reasons</div></div>
+        <div class="card-body">
+          <canvas id="exit-chart" style="max-height:180px"></canvas>
+          <div id="exit-zero" class="zero-state" style="display:none">
+            <div class="big">🚪</div>
+            <p>No exits yet.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Tickers -->
+  <div class="tab-panel" id="tab-tickers">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="card-title">Per-ticker breakdown</div>
+        <div style="font-size:10px;color:var(--muted)">Live performance vs backtest targets</div>
+      </div>
+      <div class="card-body">
+        <table class="ticker-table" id="ticker-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Trades</th>
+              <th>Win %</th>
+              <th>PnL</th>
+              <th>R:R</th>
+              <th>Best</th>
+              <th>Worst</th>
+            </tr>
+          </thead>
+          <tbody id="ticker-tbody"></tbody>
+        </table>
+        <div id="ticker-zero" class="zero-state" style="display:none">
+          <div class="big">🎯</div>
+          <p>No trades yet. Backtest targets below.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Backtest reference -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Backtest reference (2005–2025)</div>
+        <div style="font-size:10px;color:var(--muted)">20-year yfinance validation</div>
+      </div>
+      <div class="card-body">
+        <table class="ticker-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Trades</th>
+              <th>Win %</th>
+              <th>Return</th>
+              <th>R:R</th>
+              <th>Sharpe</th>
+              <th>Max DD</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="ticker-badge">SPY</span></td>
+              <td>27</td><td class="pos">55.6%</td><td class="pos">+5.79%</td>
+              <td>4.00x</td><td>0.408</td><td class="neg">2.8%</td>
+            </tr>
+            <tr>
+              <td><span class="ticker-badge">QQQ</span></td>
+              <td>41</td><td class="neu">36.6%</td><td class="pos">+7.38%</td>
+              <td>5.44x</td><td class="pos">0.633</td><td class="neg">3.1%</td>
+            </tr>
+            <tr>
+              <td><span class="ticker-badge">GLD</span></td>
+              <td>35</td><td class="neu">42.9%</td><td class="pos">+4.78%</td>
+              <td>4.03x</td><td>0.417</td><td class="neg">2.6%</td>
+            </tr>
+            <tr>
+              <td><span class="ticker-badge">AAPL</span></td>
+              <td>35</td><td class="neu">48.6%</td><td class="pos">+16.38%</td>
+              <td>7.22x</td><td>0.382</td><td class="neg">3.0%</td>
+            </tr>
+            <tr>
+              <td><span class="ticker-badge">NVDA</span></td>
+              <td>6</td><td class="neg">16.7%</td><td class="pos">+27.19%</td>
+              <td class="pos">36.63x</td><td>0.327</td><td class="neg">2.1%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: Run bot -->
+  <div class="tab-panel" id="tab-runs">
+
+    <div class="actions-grid">
+      <div class="action-card">
+        <div class="action-title">▶ Trigger daily job</div>
+        <div class="action-desc">
+          Manually runs the full daily trading job — fetches latest bars,
+          evaluates signals, places any orders on Alpaca paper account,
+          and syncs results to Drive.
+        </div>
+        <a href="https://github.com/SamxJames/trading-bot/actions/workflows/daily_job.yml"
+           target="_blank" class="btn">Run job ↗</a>
+      </div>
+      <div class="action-card">
+        <div class="action-title">📋 Weekly summary</div>
+        <div class="action-desc">
+          Manually triggers the weekly Discord summary. Posts PnL, win rate,
+          best/worst trade, and per-ticker breakdown to your Discord channel.
+        </div>
+        <a href="https://github.com/SamxJames/trading-bot/actions/workflows/weekly_summary.yml"
+           target="_blank" class="btn">Run summary ↗</a>
+      </div>
+      <div class="action-card">
+        <div class="action-title">📂 View all runs</div>
+        <div class="action-desc">
+          Browse the full GitHub Actions run history. Green = success,
+          red = failure. Click any run to see step-by-step logs.
+        </div>
+        <a href="https://github.com/SamxJames/trading-bot/actions"
+           target="_blank" class="btn secondary">Open Actions ↗</a>
+      </div>
+      <div class="action-card">
+        <div class="action-title">⚙️ Edit config</div>
+        <div class="action-desc">
+          Edit strategy parameters (EMA periods, RSI threshold, stop loss %,
+          risk limits) directly in config.yaml on GitHub.
+        </div>
+        <a href="https://github.com/SamxJames/trading-bot/edit/main/config.yaml"
+           target="_blank" class="btn secondary">Edit config.yaml ↗</a>
+      </div>
+    </div>
+
+    <!-- Current config snapshot -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Strategy config snapshot</div>
+        <div style="font-size:10px;color:var(--muted)">ema_cross_filtered · current params</div>
+      </div>
+      <div class="card-body">
+        <div class="grid-3">
+          <div>
+            <div class="stat-row"><span class="stat-label">Fast EMA</span><span>20</span></div>
+            <div class="stat-row"><span class="stat-label">Slow EMA</span><span>50</span></div>
+            <div class="stat-row"><span class="stat-label">Trend SMA</span><span>150</span></div>
+          </div>
+          <div>
+            <div class="stat-row"><span class="stat-label">RSI period</span><span>14</span></div>
+            <div class="stat-row"><span class="stat-label">RSI overbought</span><span>75</span></div>
+            <div class="stat-row"><span class="stat-label">Stop loss</span><span>2.5%</span></div>
+          </div>
+          <div>
+            <div class="stat-row"><span class="stat-label">Max positions</span><span>5</span></div>
+            <div class="stat-row"><span class="stat-label">Max notional</span><span>$500</span></div>
+            <div class="stat-row"><span class="stat-label">Drawdown halt</span><span>5%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent runs -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header">
+        <div class="card-title">Recent runs</div>
+        <a href="https://github.com/SamxJames/trading-bot/actions" target="_blank"
+           style="font-size:10px;color:var(--muted);text-decoration:none">View all ↗</a>
+      </div>
+      <div class="card-body">
+        <div id="runs-list">
+          <div class="zero-state" style="padding:24px 0">
+            <p>Run history loads from GitHub Actions.<br>
+               <a href="https://github.com/SamxJames/trading-bot/actions"
+                  target="_blank" style="color:var(--accent)">Open Actions tab ↗</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="margin-top:48px;padding-top:20px;border-top:1px solid var(--border);
+              display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+    <div style="font-size:10px;color:var(--muted)">
+      Last synced: <span id="last-synced">—</span>
+    </div>
+    <div style="font-size:10px;color:var(--muted)">
+      Paper trading · Alpaca ·
+      <a href="https://github.com/SamxJames/trading-bot" target="_blank"
+         style="color:var(--muted)">github ↗</a>
+    </div>
+  </div>
+
+</div><!-- /shell -->
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+// Replace this with the public share link for your analytics.json Drive file.
+// File → Share → Anyone with the link → Viewer, then paste the file ID below.
+const ANALYTICS_FILE_ID = 'YOUR_ANALYTICS_FILE_ID_HERE';
+const DRIVE_URL = `https://drive.google.com/uc?export=download&id=${ANALYTICS_FILE_ID}`;
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+Chart.defaults.color = '#5a6066';
+Chart.defaults.borderColor = '#252a2d';
+Chart.defaults.font.family = "'DM Mono', monospace";
+Chart.defaults.font.size = 11;
+
+let equityChart, pnlChart, exitChart;
+
+function fmt(n, prefix = '$') {
+  if (n === null || n === undefined) return '—';
+  const abs = Math.abs(n).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  return (n < 0 ? `-${prefix}` : `${prefix}`) + abs;
+}
+
+function colorClass(n) {
+  if (n > 0) return 'pos';
+  if (n < 0) return 'neg';
+  return 'neu';
+}
+
+// ── Populate KPIs ─────────────────────────────────────────────────────────────
+function populateKPIs(o) {
+  const eq = document.getElementById('kpi-equity');
+  eq.textContent = fmt(o.current_equity);
+  eq.className = 'kpi-value ' + colorClass(o.total_pnl);
+
+  const pnl = document.getElementById('kpi-pnl');
+  pnl.textContent = fmt(o.total_pnl);
+  pnl.className = 'kpi-value ' + colorClass(o.total_pnl);
+  document.getElementById('kpi-pnl-sub').textContent =
+    `${o.total_pnl >= 0 ? '+' : ''}${((o.total_pnl / 100000) * 100).toFixed(2)}% return`;
+
+  const wr = document.getElementById('kpi-winrate');
+  wr.textContent = o.win_rate + '%';
+  wr.className = 'kpi-value ' + (o.win_rate >= 45 ? 'pos' : o.win_rate >= 30 ? 'neu' : 'neg');
+  document.getElementById('kpi-trades-sub').textContent = `${o.total_trades} closed trades`;
+
+  const sh = document.getElementById('kpi-sharpe');
+  sh.textContent = o.sharpe.toFixed(3);
+  sh.className = 'kpi-value ' + (o.sharpe >= 0.3 ? 'pos' : o.sharpe >= 0 ? 'neu' : 'neg');
+
+  const dd = document.getElementById('kpi-drawdown');
+  dd.textContent = o.max_drawdown_pct.toFixed(1) + '%';
+  dd.className = 'kpi-value ' + (o.max_drawdown_pct < 3 ? 'pos' : o.max_drawdown_pct < 5 ? 'neu' : 'neg');
+
+  const p7 = document.getElementById('kpi-7d');
+  p7.textContent = fmt(o.pnl_7d);
+  p7.className = 'kpi-value ' + colorClass(o.pnl_7d);
+  document.getElementById('kpi-7d-sub').textContent = `${o.trades_7d} trades this week`;
+}
+
+// ── Equity chart ──────────────────────────────────────────────────────────────
+function buildEquityChart(curve) {
+  if (!curve || curve.length === 0) {
+    document.getElementById('equity-zero').style.display = 'block';
+    document.getElementById('equity-chart').style.display = 'none';
+    return;
+  }
+  const labels = curve.map(p => p.timestamp ? new Date(p.timestamp).toLocaleDateString('en-GB') : '');
+  const data   = curve.map(p => p.equity);
+  const startEq = 100000;
+  const isUp = data[data.length - 1] >= startEq;
+  const color = isUp ? '#00e5a0' : '#ff4b4b';
+
+  if (equityChart) equityChart.destroy();
+  equityChart = new Chart(document.getElementById('equity-chart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        borderColor: color,
+        backgroundColor: color + '18',
+        borderWidth: 1.5,
+        fill: true,
+        tension: 0.3,
+        pointRadius: curve.length < 20 ? 3 : 0,
+        pointHoverRadius: 5,
+        pointBackgroundColor: color,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => ' $' + ctx.parsed.y.toLocaleString('en-GB', {minimumFractionDigits:2}) }
+      }},
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
+        y: { grid: { color: '#252a2d' }, ticks: {
+          callback: v => '$' + (v/1000).toFixed(0) + 'k'
+        }}
+      }
+    }
+  });
+}
+
+// ── PnL distribution chart ────────────────────────────────────────────────────
+function buildPnlChart(curve) {
+  if (!curve || curve.length === 0) {
+    document.getElementById('pnl-zero').style.display = 'block';
+    document.getElementById('pnl-chart').style.display = 'none';
+    return;
+  }
+
+  // Reconstruct per-trade PnL from equity deltas
+  const pnls = [];
+  let prev = 100000;
+  for (const p of curve) {
+    pnls.push(+(p.equity - prev).toFixed(2));
+    prev = p.equity;
+  }
+
+  const colors = pnls.map(v => v >= 0 ? '#00e5a0' : '#ff4b4b');
+
+  if (pnlChart) pnlChart.destroy();
+  pnlChart = new Chart(document.getElementById('pnl-chart'), {
+    type: 'bar',
+    data: {
+      labels: pnls.map((_, i) => `T${i+1}`),
+      datasets: [{ data: pnls, backgroundColor: colors, borderRadius: 2, borderSkipped: false }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => ' $' + ctx.parsed.y.toFixed(2) }
+      }},
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } },
+        y: { grid: { color: '#252a2d' }, ticks: {
+          callback: v => '$' + v
+        }}
+      }
+    }
+  });
+}
+
+// ── Exit reasons donut ────────────────────────────────────────────────────────
+function buildExitChart(o) {
+  const signal = o.total_trades - o.stop_loss_exits;
+  const stop = o.stop_loss_exits;
+  if (o.total_trades === 0) {
+    document.getElementById('exit-zero').style.display = 'block';
+    document.getElementById('exit-chart').style.display = 'none';
+    return;
+  }
+  if (exitChart) exitChart.destroy();
+  exitChart = new Chart(document.getElementById('exit-chart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Signal exit', 'Stop loss'],
+      datasets: [{ data: [signal, stop],
+        backgroundColor: ['#00e5a0', '#ff4b4b'],
+        borderWidth: 0, hoverOffset: 4
+      }]
+    },
+    options: {
+      responsive: true, cutout: '65%',
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 8, padding: 16 } } }
+    }
+  });
+}
+
+// ── Risk stats card ───────────────────────────────────────────────────────────
+function buildRiskStats(o) {
+  document.getElementById('risk-stats').innerHTML = `
+    <div class="stat-row">
+      <span class="stat-label">Max drawdown</span>
+      <span class="${colorClass(-o.max_drawdown_pct)}">${o.max_drawdown_pct.toFixed(1)}%</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Max consec. losses</span>
+      <span>${o.max_consecutive_losses}</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Stop loss exits</span>
+      <span>${o.stop_loss_exits} / ${o.total_trades}</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Sharpe (ann.)</span>
+      <span class="${o.sharpe >= 0.3 ? 'pos' : o.sharpe >= 0 ? 'neu' : 'neg'}">${o.sharpe.toFixed(3)}</span>
+    </div>
+  `;
+}
+
+// ── Trade quality card ────────────────────────────────────────────────────────
+function buildTradeQuality(o) {
+  document.getElementById('trade-quality').innerHTML = `
+    <div class="stat-row">
+      <span class="stat-label">Avg win</span>
+      <span class="pos">${fmt(o.avg_win)}</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Avg loss</span>
+      <span class="neg">${fmt(o.avg_loss)}</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">R:R ratio</span>
+      <span class="${o.rr_ratio >= 2 ? 'pos' : 'neu'}">${o.rr_ratio.toFixed(2)}x</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Best trade</span>
+      <span class="pos">${fmt(o.best_trade)}</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Worst trade</span>
+      <span class="neg">${fmt(o.worst_trade)}</span>
+    </div>
+  `;
+}
+
+// ── Ticker table ──────────────────────────────────────────────────────────────
+function buildTickerTable(perTicker) {
+  const tbody = document.getElementById('ticker-tbody');
+  if (!perTicker || Object.keys(perTicker).length === 0) {
+    document.getElementById('ticker-zero').style.display = 'block';
+    return;
+  }
+  const rows = Object.entries(perTicker).map(([ticker, t]) => `
+    <tr>
+      <td><span class="ticker-badge">${ticker}</span></td>
+      <td>${t.trades}</td>
+      <td class="${t.win_rate >= 45 ? 'pos' : t.win_rate >= 30 ? 'neu' : 'neg'}">${t.win_rate}%</td>
+      <td class="${colorClass(t.total_pnl)}">${fmt(t.total_pnl)}</td>
+      <td class="${t.rr >= 2 ? 'pos' : 'neu'}">${t.rr.toFixed(2)}x</td>
+      <td class="pos">${fmt(t.best_trade)}</td>
+      <td class="neg">${fmt(t.worst_trade)}</td>
+    </tr>
+  `).join('');
+  tbody.innerHTML = rows;
+}
+
+// ── Zero state ────────────────────────────────────────────────────────────────
+function showZeroState() {
+  document.getElementById('equity-zero').style.display = 'block';
+  document.getElementById('equity-chart').style.display = 'none';
+  document.getElementById('pnl-zero').style.display = 'block';
+  document.getElementById('pnl-chart').style.display = 'none';
+  document.getElementById('exit-zero').style.display = 'block';
+  document.getElementById('exit-chart').style.display = 'none';
+  document.getElementById('ticker-zero').style.display = 'block';
+
+  // KPIs
+  ['kpi-equity','kpi-pnl','kpi-winrate','kpi-sharpe','kpi-drawdown','kpi-7d']
+    .forEach(id => { document.getElementById(id).textContent = '—'; });
+
+  document.getElementById('risk-stats').innerHTML =
+    '<div class="zero-state" style="padding:12px 0"><p>Waiting for first trades.</p></div>';
+  document.getElementById('trade-quality').innerHTML =
+    '<div class="zero-state" style="padding:12px 0"><p>Waiting for first trades.</p></div>';
+}
+
+// ── Main data load ────────────────────────────────────────────────────────────
+async function loadData() {
+  const dot   = document.getElementById('sync-dot');
+  const label = document.getElementById('sync-label');
+
+  // If no file ID configured, show helpful message
+  if (ANALYTICS_FILE_ID === 'YOUR_ANALYTICS_FILE_ID_HERE') {
+    dot.className = 'dot amber';
+    label.textContent = 'Drive not configured';
+    showZeroState();
+    hideLoader();
+    return;
+  }
+
+  try {
+    const resp = await fetch(DRIVE_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    if (data.zero_trades) {
+      dot.className = 'dot amber';
+      label.textContent = 'No trades yet';
+      showZeroState();
+    } else {
+      dot.className = 'dot';
+      label.textContent = 'Live data';
+      const o = data.overall;
+      populateKPIs(o);
+      buildEquityChart(data.equity_curve);
+      buildPnlChart(data.equity_curve);
+      buildExitChart(o);
+      buildRiskStats(o);
+      buildTradeQuality(o);
+      buildTickerTable(data.per_ticker);
+    }
+
+    if (data.generated_at) {
+      const d = new Date(data.generated_at);
+      document.getElementById('last-synced').textContent =
+        d.toLocaleString('en-GB', {dateStyle:'short', timeStyle:'short'});
+    }
+
+  } catch (err) {
+    dot.className = 'dot red';
+    label.textContent = 'Drive error';
+    console.error('Failed to load analytics:', err);
+    showZeroState();
+  }
+
+  hideLoader();
+}
+
+function hideLoader() {
+  document.getElementById('loading').classList.add('hidden');
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    const panels = ['performance', 'tickers', 'runs'];
+    t.classList.toggle('active', panels[i] === name);
+  });
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.toggle('active', p.id === `tab-${name}`);
+  });
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadData();
+</script>
+</body>
+</html>
