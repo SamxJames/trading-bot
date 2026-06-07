@@ -2,16 +2,16 @@ name: Daily Trading Job
 
 on:
   schedule:
-    - cron: '45 20 * * 1-5'   # 8:45 pm UTC = 4:45 pm ET (Mon-Fri) — allows Alpaca 45min to publish daily bars
-  workflow_dispatch:            # allows manual trigger from the GitHub Actions UI
+    - cron: '45 20 * * 1-5'
+  workflow_dispatch:
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # opt into Node 24 ahead of June 16 deadline
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   trade:
     runs-on: ubuntu-latest
-    timeout-minutes: 5          # kill the run if something hangs
+    timeout-minutes: 5
 
     steps:
       - uses: actions/checkout@v4
@@ -42,8 +42,21 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python -m bot job
 
+      - name: Generate analytics JSON
+        if: always()
+        run: python scripts/analyse_trades.py --out docs/
+
+      - name: Commit analytics.json to repo
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/analytics.json
+          git diff --staged --quiet || git commit -m "chore: update analytics.json [skip ci]"
+          git push
+
       - name: Sync trades_live.csv to Google Drive
-        if: always()   # run even if the trading job had a non-zero exit
+        if: always()
         env:
           GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
           GDRIVE_FILE_ID: "1NOA5b7lYQkp7i6czpqrpnJ9WWfFP3wg-"
