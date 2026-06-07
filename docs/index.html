@@ -707,10 +707,8 @@
 
 <script>
 // ── Config ────────────────────────────────────────────────────────────────────
-// Replace this with the public share link for your analytics.json Drive file.
-// File → Share → Anyone with the link → Viewer, then paste the file ID below.
-const ANALYTICS_FILE_ID = '1-ujsrlSWXYGtbue_6u42I3jmf3XefzdL';
-const DRIVE_URL = `https://drive.google.com/uc?export=download&id=${ANALYTICS_FILE_ID}`;
+// analytics.json is committed to docs/ by the daily GitHub Actions job
+const DRIVE_URL = './analytics.json';
 
 // ── Charts ────────────────────────────────────────────────────────────────────
 Chart.defaults.color = '#5a6066';
@@ -967,15 +965,6 @@ function showZeroState() {
 async function loadData() {
   const dot   = document.getElementById('sync-dot');
   const label = document.getElementById('sync-label');
-
-  // If no file ID configured, show helpful message
-  if (ANALYTICS_FILE_ID === 'YOUR_ANALYTICS_FILE_ID_HERE') {
-    dot.className = 'dot amber';
-    label.textContent = 'Drive not configured';
-    showZeroState();
-    hideLoader();
-    return;
-  }
 
   try {
     const resp = await fetch(DRIVE_URL);
