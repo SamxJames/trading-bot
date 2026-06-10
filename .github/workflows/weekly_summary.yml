@@ -3,7 +3,7 @@ name: Weekly Performance Summary
 on:
   schedule:
     - cron: '0 8 * * 1'   # 8:00 am UTC every Monday = 9:00 am UK
-  workflow_dispatch:        # allows manual trigger from GitHub Actions UI
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -27,8 +27,20 @@ jobs:
       - name: Post weekly summary to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          # Alpaca credentials needed only to satisfy Settings validation
           APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID }}
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
           APCA_BASE_URL:       ${{ secrets.APCA_BASE_URL }}
         run: python -m bot weekly
+
+      - name: Regenerate analytics JSON
+        if: always()
+        run: python scripts/analyse_trades.py --out docs/
+
+      - name: Commit analytics.json to repo
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/analytics.json
+          git diff --staged --quiet || git commit -m "chore: update analytics.json [skip ci]"
+          git push
