@@ -5,10 +5,13 @@ Reads trades_live.csv and computes richer statistics than the weekly
 Discord summary: Sharpe ratio, max consecutive losses, average hold time,
 per-ticker win rate and R:R, equity curve, and drawdown.
 
+Also reads signal_log.jsonl (written by the bot's structlog output,
+captured by the daily job) to surface filter block reasons.
+
 Usage:
     python scripts/analyse_trades.py                  # prints summary
     python scripts/analyse_trades.py --json           # outputs JSON (used by dashboard)
-    python scripts/analyse_trades.py --out results/   # writes JSON to results/analytics.json
+    python scripts/analyse_trades.py --out docs/      # writes JSON to docs/analytics.json
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
@@ -23,15 +27,15 @@ from typing import Any
 
 import pandas as pd
 
-TRADES_PATH = Path("bot/trade_journal/trades_live.csv")
-STARTING_EQUITY = 100_000.0   # paper account starting balance
-RISK_FREE_RATE = 0.04          # annualised, for Sharpe calculation
+TRADES_PATH  = Path("bot/trade_journal/trades_live.csv")
+LOG_PATH     = Path("bot/trade_journal/signal_log.jsonl")
+STARTING_EQUITY = 100_000.0
+RISK_FREE_RATE  = 0.04
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# ── helpers ───────────────────────────────────────────────────────────────────
 
 def _sharpe(returns: pd.Series, rf: float = RISK_FREE_RATE) -> float:
-    """Annualised Sharpe ratio from a series of per-trade returns (as USD PnL)."""
     if len(returns) < 2:
         return 0.0
     daily_rf = rf / 252
@@ -39,13 +43,11 @@ def _sharpe(returns: pd.Series, rf: float = RISK_FREE_RATE) -> float:
     std = excess.std()
     if std == 0:
         return 0.0
-    # Annualise assuming ~252 trading days; approximate trades/year from sample
     trades_per_year = max(len(returns), 1)
     return float((excess.mean() / std) * math.sqrt(trades_per_year))
 
 
 def _max_drawdown(equity_curve: list[float]) -> float:
-    """Maximum percentage drawdown from an equity curve."""
     if not equity_curve:
         return 0.0
     peak = equity_curve[0]
@@ -60,7 +62,6 @@ def _max_drawdown(equity_curve: list[float]) -> float:
 
 
 def _max_consecutive_losses(outcomes: list[bool]) -> int:
-    """Count the longest streak of False (losing) trades."""
     max_streak = current = 0
     for win in outcomes:
         if not win:
@@ -72,71 +73,139 @@ def _max_consecutive_losses(outcomes: list[bool]) -> int:
 
 
 def _rr_ratio(wins: pd.Series, losses: pd.Series) -> float:
-    """Average win / average absolute loss."""
     if losses.empty or wins.empty:
         return 0.0
-    avg_win = wins.mean()
+    avg_win  = wins.mean()
     avg_loss = abs(losses.mean())
     if avg_loss == 0:
         return 0.0
     return round(avg_win / avg_loss, 2)
 
 
+# ── signal log ────────────────────────────────────────────────────────────────
+
+def _read_signal_log(log_path: Path) -> dict[str, Any]:
+    """
+    Parse signal_log.jsonl for blocked signals and last run metadata.
+    Returns counts of blocked reasons and the most recent run timestamp.
+    """
+    if not log_path.exists():
+        return {"available": False}
+
+    blocked: dict[str, int] = {}
+    last_run = None
+    signals_fired = 0
+    stop_losses_triggered = 0
+
+    try:
+        for line in log_path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            event = entry.get("event", "")
+            ts    = entry.get("timestamp") or entry.get("ts")
+            if ts:
+                last_run = ts
+
+            if event == "buy_signal_blocked":
+                reason = entry.get("reason", "unknown")
+                blocked[reason] = blocked.get(reason, 0) + 1
+            elif event == "stop_loss_triggered":
+                stop_losses_triggered += 1
+            elif event in ("buy_signal", "sell_signal", "order_placed"):
+                signals_fired += 1
+
+    except Exception:
+        return {"available": False}
+
+    return {
+        "available": True,
+        "last_run": last_run,
+        "signals_fired": signals_fired,
+        "stop_losses_triggered": stop_losses_triggered,
+        "blocked_reasons": blocked,
+        "total_blocked": sum(blocked.values()),
+    }
+
+
 # ── main analytics ────────────────────────────────────────────────────────────
 
-def compute(trades_path: Path = TRADES_PATH) -> dict[str, Any]:
-    """
-    Load trades_live.csv and return a dict of analytics.
-    Returns a minimal structure with zero_trades=True if the file is
-    missing or contains only the header row.
-    """
+def compute(trades_path: Path = TRADES_PATH,
+            log_path: Path = LOG_PATH) -> dict[str, Any]:
+    generated_at = datetime.now(timezone.utc).isoformat()
+    signal_log   = _read_signal_log(log_path)
+
+    # Last run metadata from env (set by GitHub Actions) or signal log
+    last_run_info = {
+        "timestamp":   signal_log.get("last_run") or os.environ.get("GITHUB_RUN_STARTED_AT"),
+        "run_id":      os.environ.get("GITHUB_RUN_ID"),
+        "run_number":  os.environ.get("GITHUB_RUN_NUMBER"),
+        "actor":       os.environ.get("GITHUB_ACTOR", "cron"),
+        "signals_fired":          signal_log.get("signals_fired", 0),
+        "blocked_total":          signal_log.get("total_blocked", 0),
+        "blocked_trend_filter":   signal_log.get("blocked_reasons", {}).get("trend_filter", 0),
+        "blocked_rsi_overbought": signal_log.get("blocked_reasons", {}).get("rsi_overbought", 0),
+    }
+
     if not trades_path.exists():
-        return {"zero_trades": True, "reason": "trades_live.csv not found"}
+        return {
+            "zero_trades": True,
+            "reason": "trades_live.csv not found",
+            "generated_at": generated_at,
+            "last_run": last_run_info,
+            "signal_log": signal_log,
+        }
 
     df = pd.read_csv(trades_path)
-
-    # Normalise column names (strip whitespace)
     df.columns = df.columns.str.strip()
-
-    # Filter to SELL rows only — those are closed trades with a pnl_usd value
     closed = df[df["side"].str.upper() == "SELL"].copy()
 
     if closed.empty:
-        return {"zero_trades": True, "reason": "no closed trades yet"}
+        return {
+            "zero_trades": True,
+            "reason": "no closed trades yet",
+            "generated_at": generated_at,
+            "last_run": last_run_info,
+            "signal_log": signal_log,
+        }
 
-    closed["pnl_usd"] = pd.to_numeric(closed["pnl_usd"], errors="coerce").fillna(0.0)
-    closed["timestamp"] = pd.to_datetime(closed["timestamp"], utc=True, errors="coerce")
+    closed["pnl_usd"]    = pd.to_numeric(closed["pnl_usd"], errors="coerce").fillna(0.0)
+    closed["timestamp"]  = pd.to_datetime(closed["timestamp"], utc=True, errors="coerce")
     closed = closed.sort_values("timestamp").reset_index(drop=True)
 
-    # ── Equity curve ─────────────────────────────────────────────────────────
+    # ── Equity curve ──────────────────────────────────────────────────────────
     equity = STARTING_EQUITY
     equity_curve: list[dict] = []
     for _, row in closed.iterrows():
         equity += row["pnl_usd"]
         equity_curve.append({
             "timestamp": row["timestamp"].isoformat() if pd.notna(row["timestamp"]) else None,
-            "equity": round(equity, 2),
-            "trade_id": str(row.get("id", "")),
-            "ticker": str(row.get("ticker", "")),
+            "equity":    round(equity, 2),
+            "trade_id":  str(row.get("id", "")),
+            "ticker":    str(row.get("ticker", "")),
         })
 
     # ── Overall stats ─────────────────────────────────────────────────────────
-    total_trades = len(closed)
-    wins = closed[closed["pnl_usd"] > 0]["pnl_usd"]
-    losses = closed[closed["pnl_usd"] <= 0]["pnl_usd"]
-    win_rate = round(len(wins) / total_trades * 100, 1) if total_trades else 0.0
-    total_pnl = round(closed["pnl_usd"].sum(), 2)
-    best_trade = round(closed["pnl_usd"].max(), 2)
-    worst_trade = round(closed["pnl_usd"].min(), 2)
-    avg_win = round(wins.mean(), 2) if not wins.empty else 0.0
-    avg_loss = round(losses.mean(), 2) if not losses.empty else 0.0
-    rr = _rr_ratio(wins, losses)
-    sharpe = round(_sharpe(closed["pnl_usd"]), 3)
-    max_dd = _max_drawdown([e["equity"] for e in equity_curve])
-    outcomes = (closed["pnl_usd"] > 0).tolist()
-    max_consec_losses = _max_consecutive_losses(outcomes)
+    total_trades    = len(closed)
+    wins            = closed[closed["pnl_usd"] > 0]["pnl_usd"]
+    losses          = closed[closed["pnl_usd"] <= 0]["pnl_usd"]
+    win_rate        = round(len(wins) / total_trades * 100, 1) if total_trades else 0.0
+    total_pnl       = round(closed["pnl_usd"].sum(), 2)
+    best_trade      = round(closed["pnl_usd"].max(), 2)
+    worst_trade     = round(closed["pnl_usd"].min(), 2)
+    avg_win         = round(wins.mean(), 2) if not wins.empty else 0.0
+    avg_loss        = round(losses.mean(), 2) if not losses.empty else 0.0
+    rr              = _rr_ratio(wins, losses)
+    sharpe          = round(_sharpe(closed["pnl_usd"]), 3)
+    max_dd          = _max_drawdown([e["equity"] for e in equity_curve])
+    outcomes        = (closed["pnl_usd"] > 0).tolist()
+    max_consec      = _max_consecutive_losses(outcomes)
 
-    # ── Stop loss analysis ────────────────────────────────────────────────────
     stop_loss_exits = 0
     if "reason" in closed.columns:
         stop_loss_exits = int((closed["reason"].str.lower() == "stop_loss").sum())
@@ -144,48 +213,50 @@ def compute(trades_path: Path = TRADES_PATH) -> dict[str, Any]:
     # ── Per-ticker breakdown ──────────────────────────────────────────────────
     per_ticker: dict[str, Any] = {}
     for ticker, group in closed.groupby("ticker"):
-        t_wins = group[group["pnl_usd"] > 0]["pnl_usd"]
+        t_wins   = group[group["pnl_usd"] > 0]["pnl_usd"]
         t_losses = group[group["pnl_usd"] <= 0]["pnl_usd"]
-        t_total = len(group)
+        t_total  = len(group)
         per_ticker[str(ticker)] = {
-            "trades": t_total,
-            "win_rate": round(len(t_wins) / t_total * 100, 1) if t_total else 0.0,
-            "total_pnl": round(group["pnl_usd"].sum(), 2),
-            "avg_win": round(t_wins.mean(), 2) if not t_wins.empty else 0.0,
-            "avg_loss": round(t_losses.mean(), 2) if not t_losses.empty else 0.0,
-            "rr": _rr_ratio(t_wins, t_losses),
-            "best_trade": round(group["pnl_usd"].max(), 2),
+            "trades":      t_total,
+            "win_rate":    round(len(t_wins) / t_total * 100, 1) if t_total else 0.0,
+            "total_pnl":   round(group["pnl_usd"].sum(), 2),
+            "avg_win":     round(t_wins.mean(), 2) if not t_wins.empty else 0.0,
+            "avg_loss":    round(t_losses.mean(), 2) if not t_losses.empty else 0.0,
+            "rr":          _rr_ratio(t_wins, t_losses),
+            "best_trade":  round(group["pnl_usd"].max(), 2),
             "worst_trade": round(group["pnl_usd"].min(), 2),
         }
 
-    # ── Rolling 7-day PnL ─────────────────────────────────────────────────────
-    now = pd.Timestamp.now(tz="UTC")
+    # ── Rolling 7-day ─────────────────────────────────────────────────────────
+    now      = pd.Timestamp.now(tz="UTC")
     week_ago = now - pd.Timedelta(days=7)
-    recent = closed[closed["timestamp"] >= week_ago]
-    pnl_7d = round(recent["pnl_usd"].sum(), 2)
+    recent   = closed[closed["timestamp"] >= week_ago]
+    pnl_7d   = round(recent["pnl_usd"].sum(), 2)
     trades_7d = len(recent)
 
     return {
-        "zero_trades": False,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "zero_trades":  False,
+        "generated_at": generated_at,
+        "last_run":     last_run_info,
+        "signal_log":   signal_log,
         "overall": {
-            "total_trades": total_trades,
-            "win_rate": win_rate,
-            "total_pnl": total_pnl,
-            "best_trade": best_trade,
-            "worst_trade": worst_trade,
-            "avg_win": avg_win,
-            "avg_loss": avg_loss,
-            "rr_ratio": rr,
-            "sharpe": sharpe,
-            "max_drawdown_pct": max_dd,
-            "max_consecutive_losses": max_consec_losses,
-            "stop_loss_exits": stop_loss_exits,
-            "pnl_7d": pnl_7d,
-            "trades_7d": trades_7d,
-            "current_equity": round(STARTING_EQUITY + total_pnl, 2),
+            "total_trades":           total_trades,
+            "win_rate":               win_rate,
+            "total_pnl":              total_pnl,
+            "best_trade":             best_trade,
+            "worst_trade":            worst_trade,
+            "avg_win":                avg_win,
+            "avg_loss":               avg_loss,
+            "rr_ratio":               rr,
+            "sharpe":                 sharpe,
+            "max_drawdown_pct":       max_dd,
+            "max_consecutive_losses": max_consec,
+            "stop_loss_exits":        stop_loss_exits,
+            "pnl_7d":                 pnl_7d,
+            "trades_7d":              trades_7d,
+            "current_equity":         round(STARTING_EQUITY + total_pnl, 2),
         },
-        "per_ticker": per_ticker,
+        "per_ticker":   per_ticker,
         "equity_curve": equity_curve,
     }
 
@@ -193,6 +264,10 @@ def compute(trades_path: Path = TRADES_PATH) -> dict[str, Any]:
 def _print_summary(data: dict) -> None:
     if data.get("zero_trades"):
         print(f"No trades yet: {data.get('reason', '')}")
+        lr = data.get("last_run", {})
+        if lr.get("timestamp"):
+            print(f"Last run: {lr['timestamp']}")
+            print(f"Signals fired: {lr['signals_fired']}  Blocked: {lr['blocked_total']}")
         return
 
     o = data["overall"]
@@ -210,6 +285,16 @@ def _print_summary(data: dict) -> None:
     print(f"  Stop loss exits:  {o['stop_loss_exits']}")
     print(f"  Best trade:       ${o['best_trade']:+,.2f}")
     print(f"  Worst trade:      ${o['worst_trade']:+,.2f}")
+
+    lr = data.get("last_run", {})
+    if lr.get("timestamp"):
+        print(f"\n── LAST RUN ────────────────────────────────────────────")
+        print(f"  Timestamp:        {lr['timestamp']}")
+        print(f"  Signals fired:    {lr['signals_fired']}")
+        print(f"  Blocked (total):  {lr['blocked_total']}")
+        print(f"    trend_filter:   {lr['blocked_trend_filter']}")
+        print(f"    rsi_overbought: {lr['blocked_rsi_overbought']}")
+
     print("\n── PER TICKER ─────────────────────────────────────────")
     for ticker, t in data["per_ticker"].items():
         print(f"  {ticker:5s}  {t['trades']:2d} trades  "
