@@ -1,29 +1,31 @@
 """
-EMA Crossover — filtered variant.
+EMA Crossover — filtered variant (v2).
 
-Extends the baseline EMA crossover strategy with three signal-quality
-checks that gate BUY entries only (SELL signals and stop-loss exits are
-never suppressed):
+Extends v1 with three new improvements:
 
-  FILTER 1 — Trend filter
-    Only emit BUY if close > SMA(trend_sma_period).
-    Rationale: price below its long-run average = downtrend; EMA crossovers
-    in a downtrend are statistically unreliable.
+  FILTER 4 — Volume confirmation
+    Only emit BUY if current bar volume >= volume_multiplier × N-bar average.
+    Rationale: low-volume crossovers are statistically less reliable breakouts.
+    Log event: "buy_signal_blocked", reason="low_volume"
 
-  FILTER 2 — RSI confirmation
-    Only emit BUY if RSI(rsi_period) < rsi_overbought.
-    Rationale: entering when RSI is already overbought risks buying an
-    exhausted move.  Calculated via pandas-ta (not hand-rolled).
+  EXIT 1 — Trailing stop loss (replaces static stop)
+    Initial floor = entry_price × (1 - stop_loss_pct / 100).
+    As price rises the floor ratchets up:
+        current_stop = max(initial_stop, highest_price × (1 - trailing_stop_pct / 100))
+    The stop only ever moves up — never down.
+    Rationale: locks in profit as a trade moves in our favour.
+    Log event: "stop_loss_triggered", trailing=True/False
 
-  FILTER 3 — Per-trade stop loss
-    Tracked inside on_bar(), not in the risk manager.
-    After a BUY is emitted, record entry_price.  On every subsequent bar,
-    if close < entry_price * (1 - stop_loss_pct / 100) emit SELL("stop_loss").
+  EXIT 2 — Take-profit target (set take_profit_rr=0 to disable)
+    target = entry_price + (entry_price × stop_loss_pct/100) × take_profit_rr
+    Exits at a fixed R:R multiple rather than waiting for EMA crossover reversal.
+    Rationale: captures gains before a mean-reversion eats them.
+    Log event: "take_profit_triggered"
 
-Blocked-signal log events (for observability):
-  "buy_signal_blocked", reason="trend_filter", close=x, sma200=y
-  "buy_signal_blocked", reason="rsi_overbought", rsi=x
-  "stop_loss_triggered", entry=x, current=y, loss_pct=z
+All v1 filters remain unchanged:
+  FILTER 1 — Trend SMA gate (close > SMA(trend_sma_period))
+  FILTER 2 — RSI overbought gate (RSI < rsi_overbought)
+  FILTER 3 — Stop loss (now superseded by EXIT 1, kept for log compatibility)
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ from bot.strategies.ema_cross import EmaCrossStrategy
 
 
 class EmaCrossFilteredStrategy(EmaCrossStrategy):
-    """EMA crossover with trend filter, RSI confirmation, and per-trade stop loss."""
+    """EMA crossover with trend/RSI/volume filters, trailing stop, and take-profit."""
 
     name = "ema_cross_filtered"
 
@@ -48,35 +50,53 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         self,
         fast_period: int = 20,
         slow_period: int = 50,
-        trend_sma_period: int = 200,
+        trend_sma_period: int = 150,
         rsi_period: int = 14,
-        rsi_overbought: float = 70.0,
-        stop_loss_pct: float = 1.5,
+        rsi_overbought: float = 75.0,
+        stop_loss_pct: float = 2.5,
+        trailing_stop_pct: float = 2.0,
+        take_profit_rr: float = 3.0,
+        volume_lookback: int = 20,
+        volume_multiplier: float = 1.0,
         **kwargs,
     ) -> None:
         super().__init__(fast_period=fast_period, slow_period=slow_period)
+
         self.trend_sma_period = trend_sma_period
         self.rsi_period = rsi_period
         self.rsi_overbought = rsi_overbought
         self.stop_loss_pct = stop_loss_pct
+        self.trailing_stop_pct = trailing_stop_pct
+        self.take_profit_rr = take_profit_rr
+        self.volume_lookback = volume_lookback
+        self.volume_multiplier = volume_multiplier
 
-        # Indicator buffers (separate from EMA buffers in parent)
+        # Indicator buffers
         self._trend_prices: Deque[float] = deque(maxlen=trend_sma_period)
         self._rsi_prices: Deque[float] = deque(maxlen=rsi_period * 3 + 1)
+        self._volume_buffer: Deque[float] = deque(maxlen=volume_lookback)
 
-        # Position tracking for stop loss.
-        # _pending_entry is True for exactly one bar after the BUY signal fires.
-        # On that next bar we set _entry_price = bar.open, which matches the
-        # backtester's fill price (fills at next bar's open after the signal).
+        # Position state
+        # _pending_entry: True for exactly one bar after BUY fires.
+        # On that next bar we set _entry_price = bar.open (actual fill price).
         self._in_position: bool = False
         self._entry_price: float = 0.0
         self._pending_entry: bool = False
+        self._highest_price: float = 0.0       # trailing stop anchor
+        self._take_profit_price: float = 0.0   # 0 = disabled
 
     def on_start(self) -> None:
         self._in_position = False
         self._entry_price = 0.0
         self._pending_entry = False
+        self._highest_price = 0.0
+        self._take_profit_price = 0.0
         super().on_start()
+
+    def _reset_position_state(self) -> None:
+        self._in_position = False
+        self._highest_price = 0.0
+        self._take_profit_price = 0.0
 
     def on_bar(self, bar: Bar) -> Signal | None:
         close = bar.close
@@ -84,40 +104,82 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         # Always update all indicator buffers first
         self._trend_prices.append(close)
         self._rsi_prices.append(close)
+        volume = getattr(bar, "volume", None)
+        if volume and float(volume) > 0:
+            self._volume_buffer.append(float(volume))
 
-        # Always update EMA (even when stop loss fires, so future signals stay accurate)
+        # Always update EMA (even when stop fires, so future signals stay accurate)
         base_signal = super().on_bar(bar)
 
-        # Resolve the fill price on the bar immediately following the BUY signal.
-        # The backtester fills at the NEXT bar's open after the signal fires, so
-        # bar.open here is exactly the price we paid — anchor the stop to that.
+        # ── Resolve fill price on the bar immediately following the BUY ──────
+        # Backtester fills at NEXT bar's open — anchor stops to that price.
         if self._pending_entry:
             self._entry_price = bar.open
             self._pending_entry = False
+            self._highest_price = self._entry_price
+            # Set take-profit target (disabled if take_profit_rr == 0)
+            if self.take_profit_rr > 0:
+                initial_risk = self._entry_price * self.stop_loss_pct / 100.0
+                self._take_profit_price = self._entry_price + initial_risk * self.take_profit_rr
+            else:
+                self._take_profit_price = 0.0
+            self._log.info(
+                "position_opened",
+                entry=round(self._entry_price, 4),
+                initial_stop=round(self._entry_price * (1 - self.stop_loss_pct / 100), 4),
+                take_profit=round(self._take_profit_price, 4) if self._take_profit_price else "disabled",
+                trailing_stop_pct=self.trailing_stop_pct,
+            )
 
-        # ── FILTER 3: Stop loss (highest priority — overrides any EMA signal) ──
+        # ── EXIT CHECKS (highest priority — checked before any new signal) ───
         if self._in_position:
-            stop_price = self._entry_price * (1.0 - self.stop_loss_pct / 100.0)
-            if close < stop_price:
+            # Ratchet trailing high
+            if close > self._highest_price:
+                self._highest_price = close
+
+            # Current stop = max of initial floor and trailing stop
+            initial_stop  = self._entry_price * (1.0 - self.stop_loss_pct / 100.0)
+            trailing_stop = self._highest_price * (1.0 - self.trailing_stop_pct / 100.0)
+            current_stop  = max(initial_stop, trailing_stop)
+            trailing_active = trailing_stop > initial_stop
+
+            # Take-profit (check before stop — upside exit takes priority)
+            if self._take_profit_price > 0 and close >= self._take_profit_price:
+                gain_pct = (close - self._entry_price) / self._entry_price * 100.0
+                self._log.info(
+                    "take_profit_triggered",
+                    entry=round(self._entry_price, 4),
+                    current=round(close, 4),
+                    target=round(self._take_profit_price, 4),
+                    gain_pct=round(gain_pct, 2),
+                )
+                self._reset_position_state()
+                return Signal(type=SignalType.SELL, ticker=bar.ticker, reason="take_profit")
+
+            # Trailing / initial stop
+            if close < current_stop:
                 loss_pct = (self._entry_price - close) / self._entry_price * 100.0
                 self._log.info(
                     "stop_loss_triggered",
                     entry=round(self._entry_price, 4),
                     current=round(close, 4),
+                    stop=round(current_stop, 4),
                     loss_pct=round(loss_pct, 2),
+                    trailing=trailing_active,
+                    highest=round(self._highest_price, 4),
                 )
-                self._in_position = False
+                self._reset_position_state()
                 return Signal(type=SignalType.SELL, ticker=bar.ticker, reason="stop_loss")
 
         if base_signal is None:
             return None
 
-        # ── SELL signals always pass through — never suppress an exit ──
+        # ── SELL signals always pass through — never suppress an exit ─────────
         if base_signal.type == SignalType.SELL:
-            self._in_position = False
+            self._reset_position_state()
             return base_signal
 
-        # ── BUY signal: apply entry filters ──
+        # ── BUY signal: apply entry filters ───────────────────────────────────
         if base_signal.type == SignalType.BUY:
 
             # Filter 1 — Trend filter
@@ -128,7 +190,7 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
                         "buy_signal_blocked",
                         reason="trend_filter",
                         close=round(close, 4),
-                        sma200=round(sma, 4),
+                        sma=round(sma, 4),
                     )
                     return None
 
@@ -142,11 +204,29 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
                 )
                 return None
 
-            # All filters passed — emit BUY.
-            # Set _pending_entry so that on the *next* bar (the fill bar) we
-            # update _entry_price to bar.open, matching the backtester's fill price.
+            # Filter 4 — Volume confirmation
+            if (
+                self.volume_multiplier > 0
+                and len(self._volume_buffer) >= self.volume_lookback
+            ):
+                # Current bar is already in the buffer — compare against prior bars
+                prior_bars = list(self._volume_buffer)[:-1]
+                if prior_bars:
+                    avg_volume = sum(prior_bars) / len(prior_bars)
+                    current_volume = self._volume_buffer[-1]
+                    if avg_volume > 0 and current_volume < avg_volume * self.volume_multiplier:
+                        self._log.info(
+                            "buy_signal_blocked",
+                            reason="low_volume",
+                            volume=round(current_volume),
+                            avg_volume=round(avg_volume),
+                            ratio=round(current_volume / avg_volume, 2),
+                        )
+                        return None
+
+            # All filters passed — emit BUY
             self._in_position = True
-            self._entry_price = close   # provisional; overwritten on next bar
+            self._entry_price = close   # provisional; overwritten on next bar open
             self._pending_entry = True
             return base_signal
 
