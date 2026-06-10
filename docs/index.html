@@ -428,6 +428,28 @@
     </div>
   </header>
 
+  <!-- Last run banner -->
+  <div id="last-run-banner" style="margin-top:20px;padding:12px 16px;
+    background:var(--bg2);border:1px solid var(--border);border-radius:8px;
+    display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="dot amber" id="run-dot" style="flex-shrink:0"></div>
+      <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Last run</span>
+      <span style="font-size:12px" id="run-timestamp">—</span>
+    </div>
+    <div style="font-size:11px;color:var(--muted)">
+      Signals fired: <span style="color:var(--text)" id="run-signals">—</span>
+    </div>
+    <div style="font-size:11px;color:var(--muted)">
+      Blocked: <span style="color:var(--text)" id="run-blocked">—</span>
+      <span style="color:var(--muted);margin-left:4px" id="run-blocked-detail"></span>
+    </div>
+    <a href="https://github.com/SamxJames/trading-bot/actions" target="_blank"
+       style="margin-left:auto;font-size:10px;color:var(--muted);text-decoration:none">
+      View run logs ↗
+    </a>
+  </div>
+
   <!-- KPI strip -->
   <div class="kpi-strip" id="kpi-strip">
     <div class="kpi">
@@ -518,6 +540,17 @@
         </div>
       </div>
     </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="card-title">Signal filters</div>
+        <div style="font-size:10px;color:var(--muted)">Why BUY signals were blocked</div>
+      </div>
+      <div class="card-body" id="signal-filters">
+        <div class="zero-state" style="padding:12px 0"><p>No signal log data yet.</p></div>
+      </div>
+    </div>
+
   </div>
 
   <!-- Tab: Tickers -->
@@ -728,6 +761,56 @@ function colorClass(n) {
   if (n > 0) return 'pos';
   if (n < 0) return 'neg';
   return 'neu';
+}
+
+// ── Last run banner ───────────────────────────────────────────────────────────
+function populateLastRun(lr) {
+  if (!lr || !lr.timestamp) return;
+  const d = new Date(lr.timestamp);
+  document.getElementById('run-timestamp').textContent =
+    d.toLocaleString('en-GB', {dateStyle:'short', timeStyle:'short'});
+  document.getElementById('run-signals').textContent = lr.signals_fired ?? 0;
+  document.getElementById('run-blocked').textContent = lr.blocked_total ?? 0;
+  const detail = [];
+  if (lr.blocked_trend_filter)   detail.push(`trend: ${lr.blocked_trend_filter}`);
+  if (lr.blocked_rsi_overbought) detail.push(`RSI: ${lr.blocked_rsi_overbought}`);
+  document.getElementById('run-blocked-detail').textContent =
+    detail.length ? `(${detail.join(', ')})` : '';
+  document.getElementById('run-dot').className = 'dot';
+}
+
+// ── Signal filters card ───────────────────────────────────────────────────────
+function buildSignalFilters(lr, sl) {
+  const el = document.getElementById('signal-filters');
+  if (!lr || (!lr.blocked_total && !lr.signals_fired)) return;
+  const total = (lr.signals_fired || 0) + (lr.blocked_total || 0);
+  const passRate = total > 0 ? Math.round((lr.signals_fired / total) * 100) : 0;
+  const trendPct = total > 0 ? Math.round(((lr.blocked_trend_filter || 0) / total) * 100) : 0;
+  const rsiPct   = total > 0 ? Math.round(((lr.blocked_rsi_overbought || 0) / total) * 100) : 0;
+  el.innerHTML = `
+    <div class="stat-row">
+      <span class="stat-label">Total signals evaluated</span>
+      <span>${total}</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Passed all filters</span>
+      <span class="pos">${lr.signals_fired ?? 0} (${passRate}%)</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Blocked — trend filter</span>
+      <span class="neg">${lr.blocked_trend_filter ?? 0}</span>
+    </div>
+    <div style="padding:4px 0 10px">
+      <div class="progress-bar"><div class="progress-fill" style="width:${trendPct}%;background:var(--red)"></div></div>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Blocked — RSI overbought</span>
+      <span class="neu">${lr.blocked_rsi_overbought ?? 0}</span>
+    </div>
+    <div style="padding:4px 0 0">
+      <div class="progress-bar"><div class="progress-fill" style="width:${rsiPct}%;background:var(--amber)"></div></div>
+    </div>
+  `;
 }
 
 // ── Populate KPIs ─────────────────────────────────────────────────────────────
@@ -987,6 +1070,10 @@ async function loadData() {
       buildTradeQuality(o);
       buildTickerTable(data.per_ticker);
     }
+
+    // Always populate last run + signal filters regardless of trade state
+    if (data.last_run) populateLastRun(data.last_run);
+    if (data.last_run) buildSignalFilters(data.last_run, data.signal_log);
 
     if (data.generated_at) {
       const d = new Date(data.generated_at);
