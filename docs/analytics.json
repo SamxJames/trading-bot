@@ -1,11 +1,11 @@
 {
   "zero_trades": true,
   "reason": "trades_live.csv not found",
-  "generated_at": "2026-06-10T19:38:26.970440+00:00",
+  "generated_at": "2026-06-10T22:31:01.059946+00:00",
   "last_run": {
     "timestamp": null,
-    "run_id": "27301293951",
-    "run_number": "10",
+    "run_id": "27310536157",
+    "run_number": "11",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
