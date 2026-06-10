@@ -1,1 +1,18 @@
-{"zero_trades": true, "reason": "awaiting first trades"}
+{
+  "zero_trades": true,
+  "reason": "trades_live.csv not found",
+  "generated_at": "2026-06-10T19:38:26.970440+00:00",
+  "last_run": {
+    "timestamp": null,
+    "run_id": "27301293951",
+    "run_number": "10",
+    "actor": "SamxJames",
+    "signals_fired": 0,
+    "blocked_total": 0,
+    "blocked_trend_filter": 0,
+    "blocked_rsi_overbought": 0
+  },
+  "signal_log": {
+    "available": false
+  }
+}
