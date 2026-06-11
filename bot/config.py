@@ -150,6 +150,22 @@ class Settings(BaseSettings):
     drawdown_halt_pct: float = 5.0
 
     # -------------------------------------------------------------------------
+    # Regime filters (VIX gate + SPY macro gate)
+    # -------------------------------------------------------------------------
+    vix_threshold: float = 25.0        # FILTER 5: skip all BUYs if VIX > this
+    vix_tight_threshold: float = 20.0  # tighten stops when VIX > this (but < vix_threshold)
+    vix_tight_stop_pct: float = 1.5    # stop % used when VIX is elevated
+    spy_macro_filter: bool = True      # FILTER 6: skip non-SPY BUYs when SPY < SMA(200)
+    spy_sma_period: int = 200          # SPY macro SMA period
+
+    # -------------------------------------------------------------------------
+    # ATR position sizing
+    # -------------------------------------------------------------------------
+    atr_sizing: bool = False          # scale per-trade notional by ticker volatility
+    atr_period: int = 14              # ATR lookback in bars
+    atr_target_pct: float = 2.0       # reference ATR % — at this level base notional is used
+
+    # -------------------------------------------------------------------------
     # Notifications (optional)
     # -------------------------------------------------------------------------
     discord_webhook_url: str = Field(

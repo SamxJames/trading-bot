@@ -9,14 +9,17 @@ lets GitHub Actions mark the run as failed).
 Execution steps
 ---------------
 1. Validate environment — Alpaca API reachable, settings sane.
-2. Check market calendar — skip silently on non-trading days.
-3. Fetch today's completed daily bar + 60-day warm-up for each ticker.
-4. Run the configured strategy through the warm-up, then read the signal
+2. Fetch macro regime data (VIX, SPY vs SMA200) once for the session.
+3. Check market calendar — skip silently on non-trading days.
+4. Fetch today's completed daily bar + 60-day warm-up for each ticker.
+5. Run the configured strategy through the warm-up, then read the signal
    from today's bar.
-5. Risk check — positions, drawdown guard.
-6. Place market order (or dry-run log).
-7. Send Discord notification with outcome.
-8. Log job_complete with elapsed time and exit.
+6. Risk check — positions, drawdown guard.
+7. Regime gate — block BUY entries on high VIX or SPY < SMA(200) (non-SPY).
+8. Place market order (or dry-run log), sized via ATR-based volatility
+   scaling when atr_sizing is enabled.
+9. Send Discord notification with outcome.
+10. Log job_complete with elapsed time and exit.
 
 Exit codes
 ----------
@@ -34,13 +37,17 @@ from __future__ import annotations
 import time
 from datetime import date, timedelta
 
+import pandas as pd
+
 from bot import notify
 from bot.config import get_settings
 from bot.data.feed import Bar
 from bot.data.historical import fetch_bars
 from bot.execution.broker import BrokerClient
+from bot.filters.regime import RegimeFilter
 from bot.logging.logger import get_logger
 from bot.risk.manager import RiskManager
+from bot.risk.sizing import atr_position_size
 from bot.strategies.base import SignalType
 from bot.strategies.registry import get_strategy
 
@@ -101,6 +108,10 @@ async def _run(dry_run: bool) -> None:
     account = await broker.get_account()
     log.info("account_ok", equity=account.equity, status=account.status)
 
+    # ── Macro regime filter: fetch VIX/SPY once per session ───────────────────
+    regime = RegimeFilter.from_config(settings)
+    regime.fetch()
+
     # ── Step 2: Check if market was open today ────────────────────────────────
     today = date.today()
     if not await broker.is_trading_day(today):
@@ -115,6 +126,7 @@ async def _run(dry_run: bool) -> None:
             broker=broker,
             account_equity=account.equity,
             settings=settings,
+            regime=regime,
             dry_run=dry_run,
         )
 
@@ -125,6 +137,7 @@ async def _process_ticker(
     broker: BrokerClient,
     account_equity: float,
     settings: object,
+    regime: RegimeFilter,
     dry_run: bool,
 ) -> None:
     """Run the full signal → risk → order pipeline for a single ticker."""
@@ -230,8 +243,33 @@ async def _process_ticker(
         )
         return
 
+    # ── Regime filter gate (BUY only) ────────────────────────────────────────
+    if signal.type == SignalType.BUY and not regime.allow_buy(ticker):
+        log.info("buy_blocked_regime", ticker=ticker)
+        await notify.send(
+            title="Signal Blocked",
+            message=(
+                f"BUY signal on {ticker} blocked by regime filter "
+                f"(VIX/SPY macro gate)"
+            ),
+            colour="amber",
+        )
+        return
+
     # ── Step 6: Place order ──────────────────────────────────────────────────
-    qty = max(1, int(settings.max_notional_per_trade / today_bar.close))
+    if settings.atr_sizing:
+        target_notional = atr_position_size(
+            close=today_bar.close,
+            prices=pd.Series([bar.close for bar in bars]),
+            base_notional=settings.max_notional_per_trade,
+            atr_period=settings.atr_period,
+            target_atr_pct=settings.atr_target_pct,
+            max_notional=settings.max_notional_per_trade,
+        )
+    else:
+        target_notional = settings.max_notional_per_trade
+
+    qty = max(1, int(target_notional / today_bar.close))
     notional = qty * today_bar.close
     side = signal.type.value.lower()   # "buy" or "sell"
 

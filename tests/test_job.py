@@ -41,6 +41,14 @@ def _fake_settings() -> MagicMock:
     s.max_positions          = 3
     s.max_notional_per_trade = 500.0
     s.drawdown_halt_pct      = 5.0
+    s.vix_threshold          = 25.0
+    s.vix_tight_threshold    = 20.0
+    s.vix_tight_stop_pct     = 1.5
+    s.spy_macro_filter       = True
+    s.spy_sma_period         = 200
+    s.atr_sizing             = False
+    s.atr_period             = 14
+    s.atr_target_pct         = 2.0
     s.discord_webhook_url    = ""
     return s
 
@@ -175,3 +183,77 @@ async def test_buy_signal_approved_places_order_and_notifies():
     mock_notify.assert_called_once()
     title_sent = mock_notify.call_args[1].get("title") or mock_notify.call_args[0][0]
     assert "Trade Opened" in title_sent
+
+
+@pytest.mark.asyncio
+async def test_buy_signal_blocked_by_regime_filter():
+    """
+    Job places no order and sends a 'Signal Blocked' notification when the
+    regime filter rejects a BUY entry (e.g. VIX too high or SPY < SMA200).
+    """
+    today = date.today()
+    mock_broker = _fake_broker(is_trading=True, positions=[])
+
+    buy_signal = Signal(type=SignalType.BUY, ticker="AAPL", reason="test_signal")
+    mock_strategy = MagicMock()
+    mock_strategy.on_bar.return_value = buy_signal
+    mock_strategy.on_start = MagicMock()
+
+    mock_regime = MagicMock()
+    mock_regime.allow_buy.return_value = False
+
+    with (
+        patch("bot.job.get_settings",   return_value=_fake_settings()),
+        patch("bot.job.BrokerClient",   return_value=mock_broker),
+        patch("bot.job.fetch_bars",     new_callable=AsyncMock, return_value=_fake_df(today)),
+        patch("bot.job.get_strategy",   return_value=mock_strategy),
+        patch("bot.job.RegimeFilter.from_config", return_value=mock_regime),
+        patch("bot.notify.send",        new_callable=AsyncMock) as mock_notify,
+    ):
+        from bot.job import run_job
+        await run_job()
+
+    # No order should be placed when the regime filter blocks the entry
+    mock_broker.place_market_order.assert_not_called()
+
+    # 'Signal Blocked' notification must have been sent
+    mock_notify.assert_called_once()
+    title_sent = mock_notify.call_args[1].get("title") or mock_notify.call_args[0][0]
+    assert title_sent == "Signal Blocked"
+
+
+@pytest.mark.asyncio
+async def test_atr_sizing_scales_order_quantity():
+    """
+    When atr_sizing is enabled, the order quantity is derived from the
+    volatility-scaled notional returned by atr_position_size rather than
+    a flat max_notional_per_trade / price calculation.
+    """
+    today = date.today()
+    mock_broker = _fake_broker(is_trading=True, positions=[])
+
+    buy_signal = Signal(type=SignalType.BUY, ticker="AAPL", reason="test_signal")
+    mock_strategy = MagicMock()
+    mock_strategy.on_bar.return_value = buy_signal
+    mock_strategy.on_start = MagicMock()
+
+    settings = _fake_settings()
+    settings.atr_sizing = True
+
+    with (
+        patch("bot.job.get_settings",      return_value=settings),
+        patch("bot.job.BrokerClient",      return_value=mock_broker),
+        patch("bot.job.fetch_bars",        new_callable=AsyncMock, return_value=_fake_df(today)),
+        patch("bot.job.get_strategy",      return_value=mock_strategy),
+        patch("bot.job.atr_position_size", return_value=250.0) as mock_atr,
+        patch("bot.notify.send",           new_callable=AsyncMock),
+    ):
+        from bot.job import run_job
+        await run_job()
+
+    # atr_position_size must be consulted to size the order
+    mock_atr.assert_called_once()
+
+    # today's close is 152.5 → 250.0 / 152.5 = 1 share
+    order_kwargs = mock_broker.place_market_order.call_args[1]
+    assert order_kwargs["qty"] == max(1, int(250.0 / 152.5))
