@@ -45,6 +45,14 @@ vix_tight_stop_pct: 1.5   # stop % used when VIX is elevated
 spy_macro_filter: true    # FILTER 6: skip non-SPY BUYs when SPY < SMA(200)
 spy_sma_period: 200       # SPY macro SMA period
 
+# Earnings blackout (#7)
+earnings_blackout_days: 1  # FILTER 7: skip BUYs within N days of earnings (either side)
+
+# Correlation guard (#8)
+max_correlation: 0.8       # FILTER 8: skip BUY if corr with a held ticker >= this
+dynamic_correlation: true  # compute correlation matrix from recent returns
+correlation_lookback: 60   # bars of daily returns used for correlation
+
 # ATR position sizing (#6)
 atr_sizing: true          # scale notional by ticker volatility
 atr_period: 14            # ATR lookback in bars

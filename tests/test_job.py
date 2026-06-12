@@ -46,6 +46,10 @@ def _fake_settings() -> MagicMock:
     s.vix_tight_stop_pct     = 1.5
     s.spy_macro_filter       = True
     s.spy_sma_period         = 200
+    s.earnings_blackout_days = 1
+    s.max_correlation        = 0.8
+    s.dynamic_correlation    = True
+    s.correlation_lookback   = 60
     s.atr_sizing             = False
     s.atr_period             = 14
     s.atr_target_pct         = 2.0
@@ -215,6 +219,88 @@ async def test_buy_signal_blocked_by_regime_filter():
 
     # No order should be placed when the regime filter blocks the entry
     mock_broker.place_market_order.assert_not_called()
+
+    # 'Signal Blocked' notification must have been sent
+    mock_notify.assert_called_once()
+    title_sent = mock_notify.call_args[1].get("title") or mock_notify.call_args[0][0]
+    assert title_sent == "Signal Blocked"
+
+
+@pytest.mark.asyncio
+async def test_buy_signal_blocked_by_earnings_filter():
+    """
+    Job places no order and sends a 'Signal Blocked' notification when the
+    earnings filter reports a blackout for the ticker (earnings imminent).
+    """
+    today = date.today()
+    mock_broker = _fake_broker(is_trading=True, positions=[])
+
+    buy_signal = Signal(type=SignalType.BUY, ticker="AAPL", reason="test_signal")
+    mock_strategy = MagicMock()
+    mock_strategy.on_bar.return_value = buy_signal
+    mock_strategy.on_start = MagicMock()
+
+    mock_earnings = MagicMock()
+    mock_earnings.is_blackout.return_value = True
+
+    with (
+        patch("bot.job.get_settings",   return_value=_fake_settings()),
+        patch("bot.job.BrokerClient",   return_value=mock_broker),
+        patch("bot.job.fetch_bars",     new_callable=AsyncMock, return_value=_fake_df(today)),
+        patch("bot.job.get_strategy",   return_value=mock_strategy),
+        patch("bot.job.EarningsFilter.from_config", return_value=mock_earnings),
+        patch("bot.notify.send",        new_callable=AsyncMock) as mock_notify,
+    ):
+        from bot.job import run_job
+        await run_job()
+
+    # No order should be placed during an earnings blackout
+    mock_broker.place_market_order.assert_not_called()
+
+    # 'Signal Blocked' notification must have been sent
+    mock_notify.assert_called_once()
+    title_sent = mock_notify.call_args[1].get("title") or mock_notify.call_args[0][0]
+    assert title_sent == "Signal Blocked"
+
+
+@pytest.mark.asyncio
+async def test_buy_signal_blocked_by_correlation_guard():
+    """
+    Job places no order and sends a 'Signal Blocked' notification when the
+    correlation guard reports that the new entry is too correlated with an
+    existing open position.
+    """
+    today = date.today()
+    existing_position = Position(
+        ticker="QQQ", qty=1, avg_entry_price=400.0,
+        current_price=410.0, unrealized_pnl=10.0,
+    )
+    mock_broker = _fake_broker(is_trading=True, positions=[existing_position])
+
+    buy_signal = Signal(type=SignalType.BUY, ticker="AAPL", reason="test_signal")
+    mock_strategy = MagicMock()
+    mock_strategy.on_bar.return_value = buy_signal
+    mock_strategy.on_start = MagicMock()
+
+    mock_corr_guard = MagicMock()
+    mock_corr_guard.is_blocked.return_value = True
+
+    with (
+        patch("bot.job.get_settings",   return_value=_fake_settings()),
+        patch("bot.job.BrokerClient",   return_value=mock_broker),
+        patch("bot.job.fetch_bars",     new_callable=AsyncMock, return_value=_fake_df(today)),
+        patch("bot.job.get_strategy",   return_value=mock_strategy),
+        patch("bot.job.CorrelationGuard.from_config", return_value=mock_corr_guard),
+        patch("bot.notify.send",        new_callable=AsyncMock) as mock_notify,
+    ):
+        from bot.job import run_job
+        await run_job()
+
+    # No order should be placed when the correlation guard blocks the entry
+    mock_broker.place_market_order.assert_not_called()
+
+    # Guard must have been consulted with the held ticker
+    mock_corr_guard.is_blocked.assert_called_once_with("AAPL", {"QQQ"})
 
     # 'Signal Blocked' notification must have been sent
     mock_notify.assert_called_once()

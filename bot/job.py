@@ -41,8 +41,10 @@ import pandas as pd
 
 from bot import notify
 from bot.config import get_settings
+from bot.correlation import CorrelationGuard
 from bot.data.feed import Bar
 from bot.data.historical import fetch_bars
+from bot.earnings import EarningsFilter
 from bot.execution.broker import BrokerClient
 from bot.filters.regime import RegimeFilter
 from bot.logging.logger import get_logger
@@ -112,6 +114,14 @@ async def _run(dry_run: bool) -> None:
     regime = RegimeFilter.from_config(settings)
     regime.fetch()
 
+    # ── Earnings blackout filter: fetch earnings dates once per session ───────
+    earnings = EarningsFilter.from_config(settings)
+    earnings.fetch(settings.tickers)
+
+    # ── Correlation guard: fetch correlation matrix once per session ──────────
+    corr_guard = CorrelationGuard.from_config(settings)
+    corr_guard.fetch_dynamic(settings.tickers)
+
     # ── Step 2: Check if market was open today ────────────────────────────────
     today = date.today()
     if not await broker.is_trading_day(today):
@@ -127,6 +137,8 @@ async def _run(dry_run: bool) -> None:
             account_equity=account.equity,
             settings=settings,
             regime=regime,
+            earnings=earnings,
+            corr_guard=corr_guard,
             dry_run=dry_run,
         )
 
@@ -138,6 +150,8 @@ async def _process_ticker(
     account_equity: float,
     settings: object,
     regime: RegimeFilter,
+    earnings: EarningsFilter,
+    corr_guard: CorrelationGuard,
     dry_run: bool,
 ) -> None:
     """Run the full signal → risk → order pipeline for a single ticker."""
@@ -251,6 +265,32 @@ async def _process_ticker(
             message=(
                 f"BUY signal on {ticker} blocked by regime filter "
                 f"(VIX/SPY macro gate)"
+            ),
+            colour="amber",
+        )
+        return
+
+    # ── Earnings blackout gate (BUY only) ────────────────────────────────────
+    if signal.type == SignalType.BUY and earnings.is_blackout(ticker):
+        log.info("buy_blocked_earnings", ticker=ticker)
+        await notify.send(
+            title="Signal Blocked",
+            message=(
+                f"BUY signal on {ticker} blocked by earnings blackout filter"
+            ),
+            colour="amber",
+        )
+        return
+
+    # ── Correlation guard gate (BUY only) ────────────────────────────────────
+    open_positions = {pos.ticker for pos in positions}
+    if signal.type == SignalType.BUY and corr_guard.is_blocked(ticker, open_positions):
+        log.info("buy_blocked_correlation", ticker=ticker)
+        await notify.send(
+            title="Signal Blocked",
+            message=(
+                f"BUY signal on {ticker} blocked by correlation guard "
+                f"(too correlated with an existing position)"
             ),
             colour="amber",
         )

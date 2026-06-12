@@ -159,6 +159,18 @@ class Settings(BaseSettings):
     spy_sma_period: int = 200          # SPY macro SMA period
 
     # -------------------------------------------------------------------------
+    # Earnings blackout filter
+    # -------------------------------------------------------------------------
+    earnings_blackout_days: int = 1   # block new BUYs within N days of earnings (either side)
+
+    # -------------------------------------------------------------------------
+    # Correlation guard
+    # -------------------------------------------------------------------------
+    max_correlation: float = 0.8        # block new BUY if corr with a held ticker >= this
+    dynamic_correlation: bool = True    # compute correlation matrix from recent returns
+    correlation_lookback: int = 60      # bars of daily returns used for correlation
+
+    # -------------------------------------------------------------------------
     # ATR position sizing
     # -------------------------------------------------------------------------
     atr_sizing: bool = False          # scale per-trade notional by ticker volatility
