@@ -164,29 +164,40 @@ def test_filtered_blocks_buy_rsi_overbought():
 
 
 def test_filtered_stop_loss_triggers():
-    """SELL with reason='stop_loss' fires when price drops below stop threshold."""
+    """
+    SELL with reason='stop_loss' fires once the trailing stop has ratcheted
+    up and price pulls back below it — even while price remains above the
+    original fixed-entry stop level.
+    """
     strat = _make_filtered(
         fast=3, slow=5, trend_sma=3,
         rsi_period=3, rsi_overbought=100.0,  # RSI never blocks
-        stop_loss_pct=5.0,                   # 5% stop loss
+        stop_loss_pct=5.0,                   # 5% initial stop
     )
     # Create conditions for a BUY: SMA low (3 bars), then golden cross
     _feed(strat, [100.0] * 5)                # seed at 100
     _feed(strat, [80.0] * 5)                 # death cross; SMA drops
-    signals_before = _feed(strat, [90.0, 100.0, 120.0])  # recovery → BUY
 
+    # Golden cross fires on the bar at 90; the fill is resolved on the next
+    # bar's open (100), which becomes the finalised entry price.
+    signals_before = _feed(strat, [90.0, 100.0])
     buy_signals = [s for s in signals_before if s.type == SignalType.BUY]
-    assert len(buy_signals) >= 1, "Need at least one BUY to test stop loss"
+    assert len(buy_signals) >= 1, "Need at least one BUY to test the trailing stop"
+    assert strat._entry_price == 100.0
 
-    # Feed the simulated fill bar (the bar immediately after the BUY signal).
-    # _pending_entry is True, so _entry_price is updated to this bar's open.
-    # In _bar(), open == close, so _entry_price becomes 120 after this call.
-    _feed(strat, [120.0])
+    # Initial (fixed) floor = 100 * (1 - 5%) = 95.
+    initial_stop = strat._entry_price * (1 - strat.stop_loss_pct / 100.0)
 
-    # Now _entry_price is finalised at the fill price.
-    # Stop triggers at entry_price * 0.95; feed a bar 6% below to guarantee a hit.
-    entry = strat._entry_price
-    stop_price = entry * 0.94   # 6% below fill price — definitely below 5% stop
+    # Price rallies to 110 — the trailing stop ratchets up to 110 * (1 - 2%)
+    # = 107.8, well above the initial fixed floor of 95.
+    _feed(strat, [110.0])
+    trailing_stop = strat._highest_price * (1 - strat.trailing_stop_pct / 100.0)
+    assert trailing_stop > initial_stop, "Trailing stop should ratchet above the initial floor"
+
+    # Price pulls back to 105 — still above the initial fixed floor (95) but
+    # below the ratcheted trailing stop (107.8) → the trailing stop fires.
+    stop_price = 105.0
+    assert initial_stop < stop_price < trailing_stop
     signals_after = _feed(strat, [stop_price])
 
     sell_signals = [s for s in signals_after if s.type == SignalType.SELL]
