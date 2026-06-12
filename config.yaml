@@ -23,16 +23,44 @@ timeframe: 1Day
 fast_period: 20
 slow_period: 50
 
-# Filtered strategy settings
-trend_sma_period: 150  # relaxed from 200 — less restrictive trend filter
+# Entry filters
+trend_sma_period: 150  # FILTER 1: only BUY if close > SMA(150)
 rsi_period: 14
 rsi_oversold: 30
-rsi_overbought: 75     # relaxed from 70 — lets more BUY signals through
-stop_loss_pct: 2.5     # widened from 1.5 — gives trades more room to breathe
+rsi_overbought: 75     # FILTER 2: only BUY if RSI < 75
+
+# Exit management (#1 trailing stop, #2 take-profit)
+stop_loss_pct: 2.5        # initial hard floor below entry price
+trailing_stop_pct: 2.0    # ratchets up as price rises; must be <= stop_loss_pct
+take_profit_rr: 3.0       # exit at 3× initial risk — set 0 to disable
+
+# Volume confirmation (#4)
+volume_lookback: 20       # FILTER 4: bars for rolling average volume
+volume_multiplier: 1.0    # entry bar volume must be >= N× 20-bar average
+
+# Regime filters (#3 VIX, #5 SPY macro)
+vix_threshold: 25.0       # FILTER 5: skip all BUYs if VIX > 25
+vix_tight_threshold: 20.0 # tighten stops when VIX > 20 (but < 25)
+vix_tight_stop_pct: 1.5   # stop % used when VIX is elevated
+spy_macro_filter: true    # FILTER 6: skip non-SPY BUYs when SPY < SMA(200)
+spy_sma_period: 200       # SPY macro SMA period
+
+# ATR position sizing (#6)
+atr_sizing: true          # scale notional by ticker volatility
+atr_period: 14            # ATR lookback in bars
+atr_target_pct: 2.0       # reference ATR % — at this level base notional is used
 
 # Risk manager
 max_positions: 5              # one per ticker
-max_notional_per_trade: 500   # USD cap per trade
+max_notional_per_trade: 500   # USD cap per trade (also base for ATR scaling)
 drawdown_halt_pct: 5          # halt if equity drops 5% from session start
 
 # Notifications: set DISCORD_WEBHOOK_URL in .env or GitHub Actions secrets
+
+# Earnings blackout filter
+earnings_blackout_days: 3   # skip BUY entries within N trading days of earnings
+
+# Correlation guard
+max_correlation: 0.75       # block entry if correlated > this with open position
+dynamic_correlation: false  # true = recompute live via yfinance (slower)
+correlation_lookback: 60    # bars for dynamic correlation (if enabled)
