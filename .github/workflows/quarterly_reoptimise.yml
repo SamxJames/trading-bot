@@ -1,0 +1,51 @@
+name: Quarterly Walk-Forward Reoptimisation
+
+on:
+  schedule:
+    # First Monday of January, April, July, October at 9am UTC
+    - cron: '0 9 1-7 1,4,7,10 1'
+  workflow_dispatch:    # manual trigger for testing
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  reoptimise:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120   # walk-forward across 20 years can take up to 2 hours
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run walk-forward optimisation
+        run: |
+          python scripts/walk_forward.py \
+            --out results/ \
+            --promote
+        # --promote writes validated params back to config.yaml automatically
+        # If no windows pass validation, config.yaml is left unchanged
+
+      - name: Commit results and updated config
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add results/wf_results.json config.yaml
+          git diff --staged --quiet || git commit -m "chore: quarterly walk-forward reoptimisation [skip ci]"
+          git push
+
+      - name: Post results to Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          APCA_BASE_URL:       ${{ secrets.APCA_BASE_URL }}
+        run: python scripts/notify_wf_results.py
