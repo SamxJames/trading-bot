@@ -14,12 +14,17 @@ Execution steps
 4. Fetch today's completed daily bar + 60-day warm-up for each ticker.
 5. Run the configured strategy through the warm-up, then read the signal
    from today's bar.
-6. Risk check — positions, drawdown guard.
-7. Regime gate — block BUY entries on high VIX or SPY < SMA(200) (non-SPY).
-8. Place market order (or dry-run log), sized via ATR-based volatility
+6. Send an immediate "Signal Detected" notification (BUY/SELL only) showing
+   the reason, current price, and regime/earnings/correlation gate results.
+7. Risk check — positions, drawdown guard.
+8. Regime / earnings / correlation gates — block BUY entries on high VIX or
+   SPY < SMA(200) (non-SPY), earnings blackout, or excessive correlation
+   with an existing position. A blocked BUY sends a "Signal Blocked"
+   notification naming the filter(s) and reason(s).
+9. Place market order (or dry-run log), sized via ATR-based volatility
    scaling when atr_sizing is enabled.
-9. Send Discord notification with outcome.
-10. Log job_complete with elapsed time and exit.
+10. Send Discord notification with outcome.
+11. Log job_complete with elapsed time and exit.
 
 Exit codes
 ----------
@@ -143,6 +148,16 @@ async def _run(dry_run: bool) -> None:
         )
 
 
+def _format_filter_status(filter_results: dict[str, tuple[bool, str]]) -> str:
+    """Render the regime/earnings/correlation gate results for a notification."""
+    if not filter_results:
+        return "n/a (sell signal)"
+    return ", ".join(
+        f"{name}=pass" if ok else f"{name}=BLOCKED ({reason})"
+        for name, (ok, reason) in filter_results.items()
+    )
+
+
 async def _process_ticker(
     ticker: str,
     today: date,
@@ -230,8 +245,37 @@ async def _process_ticker(
         reason=signal.reason,
     )
 
-    # ── Step 5: Risk check ───────────────────────────────────────────────────
+    # ── Fetch open positions — needed for the correlation guard, risk check,
+    #    and the immediate signal notification below ─────────────────────────
     positions = await broker.get_positions()
+    open_positions = {pos.ticker for pos in positions}
+
+    # ── Evaluate regime / earnings / correlation gates up front (BUY only) so
+    #    the immediate notification and the later block decision agree ───────
+    filter_results: dict[str, tuple[bool, str]] = {}
+    if signal.type == SignalType.BUY:
+        regime_ok = regime.allow_buy(ticker)
+        filter_results["regime"] = (regime_ok, "VIX/SPY macro gate")
+
+        earnings_ok = not earnings.is_blackout(ticker)
+        filter_results["earnings"] = (earnings_ok, "earnings blackout window")
+
+        corr_ok = not corr_guard.is_blocked(ticker, open_positions)
+        filter_results["correlation"] = (corr_ok, "correlated with an existing position")
+
+    # ── Immediate signal notification — fired before any order is placed ─────
+    await notify.send(
+        title=f"Signal Detected: {signal.type.value}",
+        message=(
+            f"Ticker: {ticker}\n"
+            f"Reason: {signal.reason}\n"
+            f"Price: ${today_bar.close:.2f}\n"
+            f"Filters: {_format_filter_status(filter_results)}"
+        ),
+        colour="grey",
+    )
+
+    # ── Step 5: Risk check ───────────────────────────────────────────────────
     risk = RiskManager(
         max_positions=settings.max_positions,
         max_notional=settings.max_notional_per_trade,
@@ -257,40 +301,15 @@ async def _process_ticker(
         )
         return
 
-    # ── Regime filter gate (BUY only) ────────────────────────────────────────
-    if signal.type == SignalType.BUY and not regime.allow_buy(ticker):
-        log.info("buy_blocked_regime", ticker=ticker)
+    # ── Regime / earnings / correlation gate (BUY only) ───────────────────────
+    blocked = {name: reason for name, (ok, reason) in filter_results.items() if not ok}
+    if blocked:
+        log.info("buy_blocked_filters", ticker=ticker, blocked=list(blocked))
+        reasons = "\n".join(f"- {name}: {reason}" for name, reason in blocked.items())
         await notify.send(
             title="Signal Blocked",
             message=(
-                f"BUY signal on {ticker} blocked by regime filter "
-                f"(VIX/SPY macro gate)"
-            ),
-            colour="amber",
-        )
-        return
-
-    # ── Earnings blackout gate (BUY only) ────────────────────────────────────
-    if signal.type == SignalType.BUY and earnings.is_blackout(ticker):
-        log.info("buy_blocked_earnings", ticker=ticker)
-        await notify.send(
-            title="Signal Blocked",
-            message=(
-                f"BUY signal on {ticker} blocked by earnings blackout filter"
-            ),
-            colour="amber",
-        )
-        return
-
-    # ── Correlation guard gate (BUY only) ────────────────────────────────────
-    open_positions = {pos.ticker for pos in positions}
-    if signal.type == SignalType.BUY and corr_guard.is_blocked(ticker, open_positions):
-        log.info("buy_blocked_correlation", ticker=ticker)
-        await notify.send(
-            title="Signal Blocked",
-            message=(
-                f"BUY signal on {ticker} blocked by correlation guard "
-                f"(too correlated with an existing position)"
+                f"BUY signal on {ticker} blocked by filter(s):\n{reasons}"
             ),
             colour="amber",
         )

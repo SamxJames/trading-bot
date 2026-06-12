@@ -69,6 +69,22 @@ def _fake_broker(*, is_trading: bool = True, positions: list | None = None) -> M
     return broker
 
 
+def _titles(mock_notify: AsyncMock) -> list[str]:
+    """Extract notification titles, in call order, from a mocked notify.send."""
+    return [
+        call.kwargs.get("title") or call.args[0]
+        for call in mock_notify.call_args_list
+    ]
+
+
+def _messages(mock_notify: AsyncMock) -> list[str]:
+    """Extract notification message bodies, in call order, from a mocked notify.send."""
+    return [
+        call.kwargs.get("message") or call.args[1]
+        for call in mock_notify.call_args_list
+    ]
+
+
 def _fake_df(today: date) -> pd.DataFrame:
     """
     Two-row split-adjusted daily DataFrame with today as the last bar.
@@ -166,11 +182,23 @@ async def test_buy_signal_approved_places_order_and_notifies():
     mock_strategy.on_bar.return_value = buy_signal
     mock_strategy.on_start = MagicMock()
 
+    mock_regime = MagicMock()
+    mock_regime.allow_buy.return_value = True
+
+    mock_earnings = MagicMock()
+    mock_earnings.is_blackout.return_value = False
+
+    mock_corr_guard = MagicMock()
+    mock_corr_guard.is_blocked.return_value = False
+
     with (
         patch("bot.job.get_settings",   return_value=_fake_settings()),
         patch("bot.job.BrokerClient",   return_value=mock_broker),
         patch("bot.job.fetch_bars",     new_callable=AsyncMock, return_value=_fake_df(today)),
         patch("bot.job.get_strategy",   return_value=mock_strategy),
+        patch("bot.job.RegimeFilter.from_config",      return_value=mock_regime),
+        patch("bot.job.EarningsFilter.from_config",    return_value=mock_earnings),
+        patch("bot.job.CorrelationGuard.from_config",  return_value=mock_corr_guard),
         patch("bot.notify.send",        new_callable=AsyncMock) as mock_notify,
     ):
         from bot.job import run_job
@@ -183,10 +211,19 @@ async def test_buy_signal_approved_places_order_and_notifies():
     assert order_kwargs["side"]   == "buy"
     assert order_kwargs["qty"]    >= 1
 
-    # 'Trade Opened' notification must have been sent
-    mock_notify.assert_called_once()
-    title_sent = mock_notify.call_args[1].get("title") or mock_notify.call_args[0][0]
-    assert "Trade Opened" in title_sent
+    # An immediate 'Signal Detected' notification fires before the order,
+    # followed by the 'Trade Opened' notification.
+    assert mock_notify.call_count == 2
+    titles = _titles(mock_notify)
+    assert titles[0] == "Signal Detected: BUY"
+    assert "Trade Opened" in titles[1]
+
+    detected_message = _messages(mock_notify)[0]
+    assert "AAPL" in detected_message
+    assert "test_signal" in detected_message
+    assert "regime=pass" in detected_message
+    assert "earnings=pass" in detected_message
+    assert "correlation=pass" in detected_message
 
 
 @pytest.mark.asyncio
@@ -220,10 +257,16 @@ async def test_buy_signal_blocked_by_regime_filter():
     # No order should be placed when the regime filter blocks the entry
     mock_broker.place_market_order.assert_not_called()
 
-    # 'Signal Blocked' notification must have been sent
-    mock_notify.assert_called_once()
-    title_sent = mock_notify.call_args[1].get("title") or mock_notify.call_args[0][0]
-    assert title_sent == "Signal Blocked"
+    # An immediate 'Signal Detected' notification fires first, then
+    # 'Signal Blocked' once the regime gate rejects the entry.
+    assert mock_notify.call_count == 2
+    titles = _titles(mock_notify)
+    assert titles[0] == "Signal Detected: BUY"
+    assert titles[1] == "Signal Blocked"
+
+    detected_message, blocked_message = _messages(mock_notify)
+    assert "regime=BLOCKED" in detected_message
+    assert "regime" in blocked_message
 
 
 @pytest.mark.asyncio
@@ -257,10 +300,16 @@ async def test_buy_signal_blocked_by_earnings_filter():
     # No order should be placed during an earnings blackout
     mock_broker.place_market_order.assert_not_called()
 
-    # 'Signal Blocked' notification must have been sent
-    mock_notify.assert_called_once()
-    title_sent = mock_notify.call_args[1].get("title") or mock_notify.call_args[0][0]
-    assert title_sent == "Signal Blocked"
+    # An immediate 'Signal Detected' notification fires first, then
+    # 'Signal Blocked' once the earnings gate rejects the entry.
+    assert mock_notify.call_count == 2
+    titles = _titles(mock_notify)
+    assert titles[0] == "Signal Detected: BUY"
+    assert titles[1] == "Signal Blocked"
+
+    detected_message, blocked_message = _messages(mock_notify)
+    assert "earnings=BLOCKED" in detected_message
+    assert "earnings" in blocked_message
 
 
 @pytest.mark.asyncio
@@ -302,10 +351,62 @@ async def test_buy_signal_blocked_by_correlation_guard():
     # Guard must have been consulted with the held ticker
     mock_corr_guard.is_blocked.assert_called_once_with("AAPL", {"QQQ"})
 
-    # 'Signal Blocked' notification must have been sent
-    mock_notify.assert_called_once()
-    title_sent = mock_notify.call_args[1].get("title") or mock_notify.call_args[0][0]
-    assert title_sent == "Signal Blocked"
+    # An immediate 'Signal Detected' notification fires first, then
+    # 'Signal Blocked' once the correlation guard rejects the entry.
+    assert mock_notify.call_count == 2
+    titles = _titles(mock_notify)
+    assert titles[0] == "Signal Detected: BUY"
+    assert titles[1] == "Signal Blocked"
+
+    detected_message, blocked_message = _messages(mock_notify)
+    assert "correlation=BLOCKED" in detected_message
+    assert "correlation" in blocked_message
+
+
+@pytest.mark.asyncio
+async def test_sell_signal_sends_immediate_notification():
+    """
+    Job sends an immediate 'Signal Detected: SELL' notification — with the
+    filter summary marked n/a, since regime/earnings/correlation gates are
+    BUY-only — before placing the SELL order and sending 'Trade Closed'.
+    """
+    today = date.today()
+    existing_position = Position(
+        ticker="AAPL", qty=3, avg_entry_price=140.0,
+        current_price=152.5, unrealized_pnl=37.5,
+    )
+    mock_broker = _fake_broker(is_trading=True, positions=[existing_position])
+
+    sell_signal = Signal(type=SignalType.SELL, ticker="AAPL", reason="stop_loss")
+    mock_strategy = MagicMock()
+    mock_strategy.on_bar.return_value = sell_signal
+    mock_strategy.on_start = MagicMock()
+
+    with (
+        patch("bot.job.get_settings",   return_value=_fake_settings()),
+        patch("bot.job.BrokerClient",   return_value=mock_broker),
+        patch("bot.job.fetch_bars",     new_callable=AsyncMock, return_value=_fake_df(today)),
+        patch("bot.job.get_strategy",   return_value=mock_strategy),
+        patch("bot.notify.send",        new_callable=AsyncMock) as mock_notify,
+    ):
+        from bot.job import run_job
+        await run_job()
+
+    # A market sell order must have been submitted
+    mock_broker.place_market_order.assert_called_once()
+    order_kwargs = mock_broker.place_market_order.call_args[1]
+    assert order_kwargs["side"] == "sell"
+
+    # Immediate 'Signal Detected' notification fires before 'Trade Closed'
+    assert mock_notify.call_count == 2
+    titles = _titles(mock_notify)
+    assert titles[0] == "Signal Detected: SELL"
+    assert "Trade Closed" in titles[1]
+
+    detected_message = _messages(mock_notify)[0]
+    assert "AAPL" in detected_message
+    assert "stop_loss" in detected_message
+    assert "Filters: n/a (sell signal)" in detected_message
 
 
 @pytest.mark.asyncio
