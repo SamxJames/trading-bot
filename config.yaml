@@ -32,12 +32,12 @@ weekly_ema_filter: true # FILTER 9: only BUY if weekly EMA(20) > weekly EMA(50)
 
 # Exit management (#1 trailing stop, #2 take-profit)
 stop_loss_pct: 2.5        # initial hard floor below entry price
-trailing_stop_pct: 2.0    # ratchets up as price rises; must be <= stop_loss_pct
+trailing_stop_pct: 4.0    # ratchets up as price rises (tuned via 2005-2025 sweep, scripts/tune_filters.py)
 take_profit_rr: 3.0       # exit at 3× initial risk — set 0 to disable
 
 # Volume confirmation (#4)
 volume_lookback: 20       # FILTER 4: bars for rolling average volume
-volume_multiplier: 1.0    # entry bar volume must be >= N× 20-bar average
+volume_multiplier: 0.75   # entry bar volume must be >= N× 20-bar average (tuned via 2005-2025 sweep, scripts/tune_filters.py)
 
 # Regime filters (#3 VIX, #5 SPY macro)
 vix_threshold: 25.0       # FILTER 5: skip all BUYs if VIX > 25
