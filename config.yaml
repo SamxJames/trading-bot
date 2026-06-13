@@ -28,6 +28,7 @@ trend_sma_period: 150  # FILTER 1: only BUY if close > SMA(150)
 rsi_period: 14
 rsi_oversold: 30
 rsi_overbought: 75     # FILTER 2: only BUY if RSI < 75
+weekly_ema_filter: true # FILTER 9: only BUY if weekly EMA(20) > weekly EMA(50)
 
 # Exit management (#1 trailing stop, #2 take-profit)
 stop_loss_pct: 2.5        # initial hard floor below entry price

@@ -141,6 +141,7 @@ class Settings(BaseSettings):
     rsi_oversold: float = 30.0        # RSIStrategy: buy when RSI crosses UP through this
     rsi_overbought: float = 70.0      # block BUY if RSI >= this value
     stop_loss_pct: float = 1.5        # per-trade stop loss (% below entry)
+    weekly_ema_filter: bool = True     # FILTER 9: only BUY if weekly EMA(20) > EMA(50)
 
     # -------------------------------------------------------------------------
     # Risk parameters

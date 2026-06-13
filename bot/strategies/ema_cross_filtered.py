@@ -22,6 +22,15 @@ Extends v1 with three new improvements:
     Rationale: captures gains before a mean-reversion eats them.
     Log event: "take_profit_triggered"
 
+  FILTER 9 — Weekly EMA confirmation (set weekly_ema_filter=False to disable)
+    Only emit BUY if the ticker's weekly EMA(20) > weekly EMA(50).
+    Fetches ~60 weeks of weekly closes via yfinance (lazily, once per ticker
+    per strategy instance, then cached).
+    Rationale: avoid taking daily-chart entries against the weekly trend.
+    Fails permissively — if yfinance is unavailable or returns insufficient
+    history, the check is skipped and the BUY is allowed.
+    Log event: "buy_signal_blocked", reason="weekly_ema_bearish"
+
 All v1 filters remain unchanged:
   FILTER 1 — Trend SMA gate (close > SMA(trend_sma_period))
   FILTER 2 — RSI overbought gate (RSI < rsi_overbought)
@@ -58,6 +67,7 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         take_profit_rr: float = 3.0,
         volume_lookback: int = 20,
         volume_multiplier: float = 1.0,
+        weekly_ema_filter: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(fast_period=fast_period, slow_period=slow_period)
@@ -70,11 +80,16 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         self.take_profit_rr = take_profit_rr
         self.volume_lookback = volume_lookback
         self.volume_multiplier = volume_multiplier
+        self.weekly_ema_filter = weekly_ema_filter
 
         # Indicator buffers
         self._trend_prices: Deque[float] = deque(maxlen=trend_sma_period)
         self._rsi_prices: Deque[float] = deque(maxlen=rsi_period * 3 + 1)
         self._volume_buffer: Deque[float] = deque(maxlen=volume_lookback)
+
+        # Per-ticker cache for the weekly EMA confirmation check (Filter 9) —
+        # fetched at most once per ticker per strategy instance.
+        self._weekly_ema_cache: dict[str, bool] = {}
 
         # Position state
         # _pending_entry: True for exactly one bar after BUY fires.
@@ -224,6 +239,15 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
                         )
                         return None
 
+            # Filter 9 — Weekly EMA confirmation
+            if self.weekly_ema_filter and not self._weekly_ema_bullish(bar.ticker):
+                self._log.info(
+                    "buy_signal_blocked",
+                    reason="weekly_ema_bearish",
+                    ticker=bar.ticker,
+                )
+                return None
+
             # All filters passed — emit BUY
             self._in_position = True
             self._entry_price = close   # provisional; overwritten on next bar open
@@ -231,6 +255,24 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
             return base_signal
 
         return None
+
+    def _weekly_ema_bullish(self, ticker: str) -> bool:
+        """
+        Return True if the ticker's weekly EMA(20) > EMA(50), cached per ticker
+        for the lifetime of this strategy instance.
+
+        Fails permissively (returns True) if data is unavailable.
+        """
+        if ticker in self._weekly_ema_cache:
+            return self._weekly_ema_cache[ticker]
+
+        bullish = _fetch_weekly_ema_bullish(ticker)
+        if bullish is None:
+            self._log.warning("weekly_ema_data_unavailable", ticker=ticker)
+            bullish = True  # fail permissive
+
+        self._weekly_ema_cache[ticker] = bullish
+        return bullish
 
     def _compute_rsi(self) -> float | None:
         """Compute RSI using pandas-ta on the rolling price buffer."""
@@ -244,3 +286,36 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         if pd.isna(last_val):
             return None
         return float(last_val)
+
+
+def _fetch_weekly_ema_bullish(ticker: str) -> bool | None:
+    """
+    Fetch ~60 weeks of weekly closes via yfinance and compute EMA(20)/EMA(50).
+
+    Returns:
+        True  — weekly EMA(20) > EMA(50) (bullish)
+        False — weekly EMA(20) <= EMA(50) (bearish)
+        None  — data unavailable (insufficient history, yfinance error, etc.)
+
+    Module-level so it can be monkeypatched in tests without any network access.
+    """
+    try:
+        import yfinance as yf
+
+        df = yf.Ticker(ticker).history(period="60wk", interval="1wk", auto_adjust=True)
+        if df is None or df.empty or len(df) < 50:
+            return None
+
+        closes = df["Close"]
+        ema20 = ta.ema(closes, length=20)
+        ema50 = ta.ema(closes, length=50)
+        if ema20 is None or ema50 is None or ema20.empty or ema50.empty:
+            return None
+
+        last20, last50 = ema20.iloc[-1], ema50.iloc[-1]
+        if pd.isna(last20) or pd.isna(last50):
+            return None
+
+        return bool(last20 > last50)
+    except Exception:
+        return None

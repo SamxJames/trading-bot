@@ -89,6 +89,7 @@ async def _startup_checklist(broker: BrokerClient, settings, log) -> float:
             rsi_oversold=settings.rsi_oversold,
             rsi_overbought=settings.rsi_overbought,
             stop_loss_pct=settings.stop_loss_pct,
+            weekly_ema_filter=settings.weekly_ema_filter,
         )
         print(f"  [OK] Strategy '{settings.strategy}' loaded  "
               f"|  registered: {sorted(REGISTRY.keys())}")

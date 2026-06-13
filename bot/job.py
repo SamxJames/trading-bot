@@ -217,6 +217,7 @@ async def _process_ticker(
         rsi_oversold=settings.rsi_oversold,
         rsi_overbought=settings.rsi_overbought,
         stop_loss_pct=settings.stop_loss_pct,
+        weekly_ema_filter=settings.weekly_ema_filter,
     )
     strategy.on_start()
 
