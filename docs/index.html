@@ -428,6 +428,26 @@
     </div>
   </header>
 
+  <!-- Bot Status panel -->
+  <div class="kpi-strip" id="bot-status-strip" style="margin-top:32px">
+    <div class="kpi">
+      <div class="kpi-label">Last run</div>
+      <div class="kpi-value" id="status-last-run" style="font-size:18px">—</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Run status</div>
+      <div class="kpi-value" id="status-run-status" style="font-size:18px">—</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Open positions</div>
+      <div class="kpi-value" id="status-open-positions">—</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Evaluated today</div>
+      <div class="kpi-value" id="status-evaluated-today">—</div>
+    </div>
+  </div>
+
   <!-- Last run banner -->
   <div id="last-run-banner" style="margin-top:20px;padding:12px 16px;
     background:var(--bg2);border:1px solid var(--border);border-radius:8px;
@@ -500,9 +520,8 @@
         </div>
         <div class="card-body">
           <canvas id="equity-chart"></canvas>
-          <div id="equity-zero" class="zero-state" style="display:none">
-            <div class="big">📈</div>
-            <p>No closed trades yet.<br>Check back after the first signal fires.</p>
+          <div id="equity-zero" class="zero-state" style="display:none;padding:12px 0 0">
+            <p>No trades yet — equity curve will populate after first closed position</p>
           </div>
         </div>
       </div>
@@ -548,6 +567,16 @@
       </div>
       <div class="card-body" id="signal-filters">
         <div class="zero-state" style="padding:12px 0"><p>No signal log data yet.</p></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="card-title">Filter blocks (30d)</div>
+        <div style="font-size:10px;color:var(--muted)">BUY signals blocked per filter, last 30 days</div>
+      </div>
+      <div class="card-body">
+        <canvas id="filter-blocks-chart" style="max-height:200px"></canvas>
       </div>
     </div>
 
@@ -749,7 +778,7 @@ Chart.defaults.borderColor = '#252a2d';
 Chart.defaults.font.family = "'DM Mono', monospace";
 Chart.defaults.font.size = 11;
 
-let equityChart, pnlChart, exitChart;
+let equityChart, pnlChart, exitChart, filterBlocksChart;
 
 function fmt(n, prefix = '$') {
   if (n === null || n === undefined) return '—';
@@ -776,7 +805,70 @@ function populateLastRun(lr) {
   if (lr.blocked_rsi_overbought) detail.push(`RSI: ${lr.blocked_rsi_overbought}`);
   document.getElementById('run-blocked-detail').textContent =
     detail.length ? `(${detail.join(', ')})` : '';
-  document.getElementById('run-dot').className = 'dot';
+  const dot = document.getElementById('run-dot');
+  if (lr.status === 'error') dot.className = 'dot red';
+  else if (lr.status === 'ok') dot.className = 'dot';
+  else dot.className = 'dot amber';
+}
+
+// ── Bot Status panel ─────────────────────────────────────────────────────────
+function populateBotStatus(data) {
+  const lr = data.last_run || {};
+  const strip = document.getElementById('bot-status-strip');
+
+  if (!lr.timestamp) {
+    strip.innerHTML = `
+      <div class="kpi" style="grid-column:1/-1;text-align:center">
+        <div class="kpi-label">Bot status</div>
+        <div class="kpi-value neu" style="font-size:18px">Awaiting first run</div>
+      </div>
+    `;
+    return;
+  }
+
+  const d = new Date(lr.timestamp);
+  const now = new Date();
+  const time = d.toLocaleTimeString('en-GB', {hour:'numeric', minute:'2-digit', hour12:true})
+    .toLowerCase().replace(' ', '');
+  const isToday = d.toDateString() === now.toDateString();
+  document.getElementById('status-last-run').textContent = isToday
+    ? `Today ${time}`
+    : `${d.toLocaleDateString('en-GB', {day:'numeric', month:'short'})} ${time}`;
+
+  const statusEl = document.getElementById('status-run-status');
+  if (data.last_run_status === 'ok') {
+    statusEl.innerHTML = '<span class="pos">&#10003; OK</span>';
+  } else if (data.last_run_status === 'error') {
+    statusEl.innerHTML = '<span class="neg">&#10007; Error</span>';
+  } else {
+    statusEl.textContent = '—';
+  }
+
+  document.getElementById('status-open-positions').textContent = (data.open_positions || []).length;
+  document.getElementById('status-evaluated-today').textContent = (data.today_evaluated || []).length;
+}
+
+// ── Filter blocks chart ──────────────────────────────────────────────────────
+function buildFilterBlocksChart(blocks) {
+  const labels = Object.keys(blocks || {});
+  const data   = Object.values(blocks || {});
+
+  if (filterBlocksChart) filterBlocksChart.destroy();
+  filterBlocksChart = new Chart(document.getElementById('filter-blocks-chart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: '#0090ff', borderRadius: 2, borderSkipped: false }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { grid: { color: '#252a2d' }, ticks: { precision: 0 } }
+      }
+    }
+  });
 }
 
 // ── Signal filters card ───────────────────────────────────────────────────────
@@ -845,20 +937,29 @@ function populateKPIs(o) {
 }
 
 // ── Equity chart ──────────────────────────────────────────────────────────────
-function buildEquityChart(curve) {
+function buildEquityChart(curve, maxDdIdx, zeroTrades) {
+  const canvas = document.getElementById('equity-chart');
+  const zeroLabel = document.getElementById('equity-zero');
+
   if (!curve || curve.length === 0) {
-    document.getElementById('equity-zero').style.display = 'block';
-    document.getElementById('equity-chart').style.display = 'none';
+    zeroLabel.style.display = 'block';
+    canvas.style.display = 'none';
     return;
   }
-  const labels = curve.map(p => p.timestamp ? new Date(p.timestamp).toLocaleDateString('en-GB') : '');
+  canvas.style.display = 'block';
+  zeroLabel.style.display = zeroTrades ? 'block' : 'none';
+
+  const labels = curve.map(p => p.date ? new Date(p.date).toLocaleDateString('en-GB') : '');
   const data   = curve.map(p => p.equity);
   const startEq = 100000;
   const isUp = data[data.length - 1] >= startEq;
-  const color = isUp ? '#00e5a0' : '#ff4b4b';
+  const color = zeroTrades ? '#5a6066' : (isUp ? '#00e5a0' : '#ff4b4b');
+
+  const pointRadius = data.map((_, i) => i === maxDdIdx ? 6 : (curve.length < 20 ? 3 : 0));
+  const pointBackgroundColor = data.map((_, i) => i === maxDdIdx ? '#ff4b4b' : color);
 
   if (equityChart) equityChart.destroy();
-  equityChart = new Chart(document.getElementById('equity-chart'), {
+  equityChart = new Chart(canvas, {
     type: 'line',
     data: {
       labels,
@@ -868,16 +969,22 @@ function buildEquityChart(curve) {
         backgroundColor: color + '18',
         borderWidth: 1.5,
         fill: true,
-        tension: 0.3,
-        pointRadius: curve.length < 20 ? 3 : 0,
+        tension: zeroTrades ? 0 : 0.3,
+        pointRadius,
         pointHoverRadius: 5,
-        pointBackgroundColor: color,
+        pointBackgroundColor,
+        pointBorderColor: pointBackgroundColor,
       }]
     },
     options: {
       responsive: true,
       plugins: { legend: { display: false }, tooltip: {
-        callbacks: { label: ctx => ' $' + ctx.parsed.y.toLocaleString('en-GB', {minimumFractionDigits:2}) }
+        callbacks: {
+          label: ctx => {
+            const prefix = ctx.dataIndex === maxDdIdx ? 'Max drawdown — ' : '';
+            return ` ${prefix}$` + ctx.parsed.y.toLocaleString('en-GB', {minimumFractionDigits:2});
+          }
+        }
       }},
       scales: {
         x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
@@ -890,17 +997,19 @@ function buildEquityChart(curve) {
 }
 
 // ── PnL distribution chart ────────────────────────────────────────────────────
-function buildPnlChart(curve) {
-  if (!curve || curve.length === 0) {
+function buildPnlChart(curve, zeroTrades) {
+  if (!curve || curve.length <= 1 || zeroTrades) {
     document.getElementById('pnl-zero').style.display = 'block';
     document.getElementById('pnl-chart').style.display = 'none';
     return;
   }
+  document.getElementById('pnl-zero').style.display = 'none';
+  document.getElementById('pnl-chart').style.display = 'block';
 
-  // Reconstruct per-trade PnL from equity deltas
+  // Reconstruct per-trade PnL from equity deltas (skip the starting-equity point)
   const pnls = [];
-  let prev = 100000;
-  for (const p of curve) {
+  let prev = curve[0].equity;
+  for (const p of curve.slice(1)) {
     pnls.push(+(p.equity - prev).toFixed(2));
     prev = p.equity;
   }
@@ -1025,11 +1134,10 @@ function buildTickerTable(perTicker) {
 }
 
 // ── Zero state ────────────────────────────────────────────────────────────────
-function showZeroState() {
-  document.getElementById('equity-zero').style.display = 'block';
-  document.getElementById('equity-chart').style.display = 'none';
-  document.getElementById('pnl-zero').style.display = 'block';
-  document.getElementById('pnl-chart').style.display = 'none';
+function showZeroState(data) {
+  buildEquityChart(data.equity_curve, null, true);
+  buildPnlChart(data.equity_curve, true);
+
   document.getElementById('exit-zero').style.display = 'block';
   document.getElementById('exit-chart').style.display = 'none';
   document.getElementById('ticker-zero').style.display = 'block';
@@ -1057,21 +1165,23 @@ async function loadData() {
     if (data.zero_trades) {
       dot.className = 'dot amber';
       label.textContent = 'No trades yet';
-      showZeroState();
+      showZeroState(data);
     } else {
       dot.className = 'dot';
       label.textContent = 'Live data';
       const o = data.overall;
       populateKPIs(o);
-      buildEquityChart(data.equity_curve);
-      buildPnlChart(data.equity_curve);
+      buildEquityChart(data.equity_curve, o.max_drawdown_idx, false);
+      buildPnlChart(data.equity_curve, false);
       buildExitChart(o);
       buildRiskStats(o);
       buildTradeQuality(o);
       buildTickerTable(data.per_ticker);
     }
 
-    // Always populate last run + signal filters regardless of trade state
+    // Always populate bot status, filter chart, last run + signal filters
+    populateBotStatus(data);
+    buildFilterBlocksChart(data.filter_blocks_30d);
     if (data.last_run) populateLastRun(data.last_run);
     if (data.last_run) buildSignalFilters(data.last_run, data.signal_log);
 
@@ -1085,7 +1195,9 @@ async function loadData() {
     dot.className = 'dot red';
     label.textContent = 'Drive error';
     console.error('Failed to load analytics:', err);
-    showZeroState();
+    showZeroState({ equity_curve: [] });
+    populateBotStatus({});
+    buildFilterBlocksChart({});
   }
 
   hideLoader();
