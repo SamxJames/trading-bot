@@ -184,6 +184,13 @@ async def _run(dry_run: bool) -> None:
             dry_run=dry_run,
         )
 
+    # ── Shadow trading: simulate the strategy on real data, place no orders ───
+    if settings.shadow_mode:
+        from bot.shadow import ShadowTrader
+
+        shadow = ShadowTrader(settings, regime, earnings, corr_guard)
+        await shadow.run(today)
+
 
 def _safe_num(value: object) -> float | int | None:
     """Return `value` if it's a real int/float, else None (guards against mocked objects)."""

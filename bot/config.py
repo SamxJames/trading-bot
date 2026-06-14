@@ -179,6 +179,11 @@ class Settings(BaseSettings):
     atr_target_pct: float = 2.0       # reference ATR % — at this level base notional is used
 
     # -------------------------------------------------------------------------
+    # Shadow trading
+    # -------------------------------------------------------------------------
+    shadow_mode: bool = False         # run ShadowTrader after the live loop (simulated fills, no orders)
+
+    # -------------------------------------------------------------------------
     # Notifications (optional)
     # -------------------------------------------------------------------------
     discord_webhook_url: str = Field(

@@ -540,6 +540,18 @@
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="card-title">Shadow Trading</div>
+        <div style="font-size:10px;color:var(--muted)">Simulated fills on real data — Shadow (simulated fills), no orders placed</div>
+      </div>
+      <div class="card-body" id="shadow-panel">
+        <div class="zero-state" style="padding:12px 0">
+          <p>Shadow trading accumulating — check back after first week of runs.</p>
+        </div>
+      </div>
+    </div>
+
     <div class="grid-3">
       <div class="card">
         <div class="card-header"><div class="card-title">Risk metrics</div></div>
@@ -938,7 +950,22 @@ function populateKPIs(o) {
 }
 
 // ── Equity chart ──────────────────────────────────────────────────────────────
-function buildEquityChart(curve, maxDdIdx, zeroTrades) {
+// Maps a curve's equity values onto a shared sorted list of dates, carrying
+// the last-known value forward so a shorter curve still lines up with a
+// longer one on the same category axis.
+function mapCurveToDates(curve, dates) {
+  const sorted = curve.filter(p => p.date).slice().sort((a, b) => a.date.localeCompare(b.date));
+  return dates.map(d => {
+    let val = null;
+    for (const p of sorted) {
+      if (p.date <= d) val = p.equity;
+      else break;
+    }
+    return val;
+  });
+}
+
+function buildEquityChart(curve, maxDdIdx, zeroTrades, shadowCurve) {
   const canvas = document.getElementById('equity-chart');
   const zeroLabel = document.getElementById('equity-zero');
 
@@ -950,40 +977,76 @@ function buildEquityChart(curve, maxDdIdx, zeroTrades) {
   canvas.style.display = 'block';
   zeroLabel.style.display = zeroTrades ? 'block' : 'none';
 
-  const labels = curve.map(p => p.date ? new Date(p.date).toLocaleDateString('en-GB') : '');
-  const data   = curve.map(p => p.equity);
   const startEq = 100000;
-  const isUp = data[data.length - 1] >= startEq;
+  const hasShadow = !!(shadowCurve && shadowCurve.length > 1);
+
+  let labels, data, shadowData;
+  if (hasShadow) {
+    const dateSet = new Set();
+    curve.forEach(p => p.date && dateSet.add(p.date));
+    shadowCurve.forEach(p => p.date && dateSet.add(p.date));
+    const dates = Array.from(dateSet).sort();
+
+    labels = dates.map(d => new Date(d).toLocaleDateString('en-GB'));
+    data = mapCurveToDates(curve, dates);
+    shadowData = mapCurveToDates(shadowCurve, dates);
+  } else {
+    labels = curve.map(p => p.date ? new Date(p.date).toLocaleDateString('en-GB') : '');
+    data = curve.map(p => p.equity);
+    shadowData = null;
+  }
+
+  const lastEq = data[data.length - 1];
+  const isUp = (lastEq === null ? curve[curve.length - 1].equity : lastEq) >= startEq;
   const color = zeroTrades ? '#5a6066' : (isUp ? '#00e5a0' : '#ff4b4b');
 
   const pointRadius = data.map((_, i) => i === maxDdIdx ? 6 : (curve.length < 20 ? 3 : 0));
   const pointBackgroundColor = data.map((_, i) => i === maxDdIdx ? '#ff4b4b' : color);
 
+  const datasets = [{
+    label: 'Live',
+    data,
+    borderColor: color,
+    backgroundColor: color + '18',
+    borderWidth: 1.5,
+    fill: true,
+    tension: zeroTrades ? 0 : 0.3,
+    pointRadius,
+    pointHoverRadius: 5,
+    pointBackgroundColor,
+    pointBorderColor: pointBackgroundColor,
+    spanGaps: true,
+  }];
+
+  if (hasShadow) {
+    datasets.push({
+      label: 'Shadow (simulated fills)',
+      data: shadowData,
+      borderColor: '#0090ff',
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderDash: [5, 4],
+      fill: false,
+      tension: 0.3,
+      pointRadius: 0,
+      pointHoverRadius: 3,
+      spanGaps: true,
+    });
+  }
+
   if (equityChart) equityChart.destroy();
   equityChart = new Chart(canvas, {
     type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        data,
-        borderColor: color,
-        backgroundColor: color + '18',
-        borderWidth: 1.5,
-        fill: true,
-        tension: zeroTrades ? 0 : 0.3,
-        pointRadius,
-        pointHoverRadius: 5,
-        pointBackgroundColor,
-        pointBorderColor: pointBackgroundColor,
-      }]
-    },
+    data: { labels, datasets },
     options: {
       responsive: true,
-      plugins: { legend: { display: false }, tooltip: {
+      plugins: { legend: { display: hasShadow, labels: { color: '#9aa1a6', boxWidth: 16 } }, tooltip: {
         callbacks: {
           label: ctx => {
-            const prefix = ctx.dataIndex === maxDdIdx ? 'Max drawdown — ' : '';
-            return ` ${prefix}$` + ctx.parsed.y.toLocaleString('en-GB', {minimumFractionDigits:2});
+            const prefix = ctx.dataIndex === maxDdIdx && ctx.datasetIndex === 0 ? 'Max drawdown — ' : '';
+            const dsLabel = hasShadow ? `${ctx.dataset.label}: ` : '';
+            if (ctx.parsed.y === null) return null;
+            return ` ${dsLabel}${prefix}$` + ctx.parsed.y.toLocaleString('en-GB', {minimumFractionDigits:2});
           }
         }
       }},
@@ -995,6 +1058,34 @@ function buildEquityChart(curve, maxDdIdx, zeroTrades) {
       }
     }
   });
+}
+
+// ── Shadow trading panel ──────────────────────────────────────────────────────
+function buildShadowPanel(shadow) {
+  const el = document.getElementById('shadow-panel');
+  if (!shadow || !shadow.total_trades) {
+    el.innerHTML = '<div class="zero-state" style="padding:12px 0">' +
+      '<p>Shadow trading accumulating — check back after first week of runs.</p></div>';
+    return;
+  }
+
+  const winRatePct = shadow.win_rate * 100;
+  el.innerHTML = `
+    <div class="grid-3">
+      <div class="stat-row" style="border-bottom:none">
+        <span class="stat-label">Shadow trades</span>
+        <span>${shadow.total_trades}</span>
+      </div>
+      <div class="stat-row" style="border-bottom:none">
+        <span class="stat-label">Shadow win rate</span>
+        <span class="${colorClass(winRatePct - 50)}">${winRatePct.toFixed(1)}%</span>
+      </div>
+      <div class="stat-row" style="border-bottom:none">
+        <span class="stat-label">Shadow Sharpe</span>
+        <span class="${colorClass(shadow.sharpe)}">${shadow.sharpe.toFixed(3)}</span>
+      </div>
+    </div>
+  `;
 }
 
 // ── PnL distribution chart ────────────────────────────────────────────────────
@@ -1136,8 +1227,9 @@ function buildTickerTable(perTicker) {
 
 // ── Zero state ────────────────────────────────────────────────────────────────
 function showZeroState(data) {
-  buildEquityChart(data.equity_curve, null, true);
+  buildEquityChart(data.equity_curve, null, true, data.shadow && data.shadow.equity_curve);
   buildPnlChart(data.equity_curve, true);
+  buildShadowPanel(data.shadow);
 
   document.getElementById('exit-zero').style.display = 'block';
   document.getElementById('exit-chart').style.display = 'none';
@@ -1172,12 +1264,13 @@ async function loadData() {
       label.textContent = 'Live data';
       const o = data.overall;
       populateKPIs(o);
-      buildEquityChart(data.equity_curve, o.max_drawdown_idx, false);
+      buildEquityChart(data.equity_curve, o.max_drawdown_idx, false, data.shadow && data.shadow.equity_curve);
       buildPnlChart(data.equity_curve, false);
       buildExitChart(o);
       buildRiskStats(o);
       buildTradeQuality(o);
       buildTickerTable(data.per_ticker);
+      buildShadowPanel(data.shadow);
     }
 
     // Always populate bot status, filter chart, last run + signal filters

@@ -29,6 +29,7 @@ import pandas as pd
 
 TRADES_PATH  = Path("bot/trade_journal/trades_live.csv")
 LOG_PATH     = Path("bot/trade_journal/signal_log.jsonl")
+SHADOW_TRADES_PATH = Path("bot/trade_journal/shadow_trades.csv")
 STARTING_EQUITY = 100_000.0
 RISK_FREE_RATE  = 0.04
 
@@ -155,6 +156,79 @@ def _rr_ratio(wins: pd.Series, losses: pd.Series) -> float:
     if avg_loss == 0:
         return 0.0
     return round(avg_win / avg_loss, 2)
+
+
+# ── shadow trading ────────────────────────────────────────────────────────────
+
+def _empty_shadow_stats() -> dict[str, Any]:
+    return {
+        "total_trades":     0,
+        "win_rate":         0.0,
+        "sharpe":           0.0,
+        "total_return_pct": 0.0,
+        "avg_rr":           0.0,
+        "max_drawdown_pct": 0.0,
+        "equity_curve":     _flat_equity_curve(),
+    }
+
+
+def _compute_shadow_stats(shadow_path: Path = SHADOW_TRADES_PATH) -> dict[str, Any]:
+    """
+    Read shadow_trades.csv (closed-trade rows: id, ticker, side, entry_price,
+    exit_price, pnl_usd, pnl_pct, reason, entry_date, exit_date, bars_held)
+    and compute the same headline stats as the live `overall` block, scoped
+    to the shadow (simulated-fill) trade history.
+    """
+    if not shadow_path.exists():
+        return _empty_shadow_stats()
+
+    try:
+        df = pd.read_csv(shadow_path)
+        df.columns = df.columns.str.strip()
+    except Exception:
+        return _empty_shadow_stats()
+
+    if df.empty:
+        return _empty_shadow_stats()
+
+    df["pnl_usd"] = pd.to_numeric(df["pnl_usd"], errors="coerce").fillna(0.0)
+    df["entry_date"] = pd.to_datetime(df["entry_date"], utc=True, errors="coerce")
+    df["exit_date"]  = pd.to_datetime(df["exit_date"], utc=True, errors="coerce")
+    df = df.sort_values("exit_date").reset_index(drop=True)
+
+    total_trades = len(df)
+    wins   = df[df["pnl_usd"] > 0]["pnl_usd"]
+    losses = df[df["pnl_usd"] <= 0]["pnl_usd"]
+    win_rate = round(len(wins) / total_trades, 3) if total_trades else 0.0
+    sharpe   = round(_sharpe(df["pnl_usd"]), 3)
+    avg_rr   = _rr_ratio(wins, losses)
+
+    first_entry = df["entry_date"].iloc[0]
+    start_date = (first_entry - pd.Timedelta(days=1)).date().isoformat() if pd.notna(first_entry) else None
+
+    equity = STARTING_EQUITY
+    equity_curve: list[dict] = [{"date": start_date, "equity": round(equity, 2)}]
+    for _, row in df.iterrows():
+        equity += row["pnl_usd"]
+        equity_curve.append({
+            "date":     row["exit_date"].date().isoformat() if pd.notna(row["exit_date"]) else None,
+            "equity":   round(equity, 2),
+            "trade_id": str(row.get("id", "")),
+            "ticker":   str(row.get("ticker", "")),
+        })
+
+    total_return_pct = round((equity - STARTING_EQUITY) / STARTING_EQUITY * 100, 2)
+    max_dd, _ = _max_drawdown([e["equity"] for e in equity_curve])
+
+    return {
+        "total_trades":     total_trades,
+        "win_rate":         win_rate,
+        "sharpe":           sharpe,
+        "total_return_pct": total_return_pct,
+        "avg_rr":           avg_rr,
+        "max_drawdown_pct": max_dd,
+        "equity_curve":     equity_curve,
+    }
 
 
 # ── signal log ────────────────────────────────────────────────────────────────
@@ -300,6 +374,7 @@ def compute(trades_path: Path = TRADES_PATH,
         "today_evaluated":  signal_log.get("today_evaluated", []),
         "today_signals":    signal_log.get("today_signals", []),
         "filter_blocks_30d": signal_log.get("filter_blocks_30d", {k: 0 for k in FILTER_BLOCK_KEYS}),
+        "shadow":           _compute_shadow_stats(),
     }
 
     if not trades_path.exists():
