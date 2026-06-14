@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import json
 import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -32,6 +33,17 @@ from bot.logging.logger import get_logger
 log = get_logger(__name__)
 
 JOURNAL_PATH = Path("trades_live.csv")
+ANALYTICS_PATH = Path("docs/analytics.json")
+SIGNAL_LOG_PATH = Path("bot/trade_journal/signal_log.jsonl")
+
+# Must match bot.job.FILTER_KEYS / scripts.analyse_trades.FILTER_BLOCK_KEYS.
+FILTER_BLOCK_KEYS = [
+    "trend_sma", "rsi_overbought", "volume", "vix",
+    "spy_macro", "earnings", "correlation", "weekly_ema",
+]
+
+FILTER_BAR_WIDTH = 10
+FILTER_OVERACTIVE_THRESHOLD = 0.60
 
 # ── Data model ────────────────────────────────────────────────────────────────
 
@@ -141,6 +153,72 @@ def compute_stats(trades: list[Trade], since: date | None = None) -> dict:
     }
 
 
+# ── Filter activity (30d) ────────────────────────────────────────────────────
+
+def _load_filter_blocks_30d(path: Path = ANALYTICS_PATH) -> dict[str, int]:
+    """Read filter_blocks_30d from docs/analytics.json. Returns {} if missing/unreadable."""
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data.get("filter_blocks_30d", {})
+
+
+def _count_signal_evaluations_30d(path: Path = SIGNAL_LOG_PATH) -> int:
+    """Count signal_evaluation records in signal_log.jsonl from the last 30 days."""
+    if not path.exists():
+        return 0
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    count = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("event") != "signal_evaluation":
+            continue
+        ts_raw = entry.get("ts")
+        if not ts_raw:
+            continue
+        ts = datetime.fromisoformat(ts_raw)
+        if ts >= cutoff:
+            count += 1
+    return count
+
+
+def build_filter_activity_lines() -> list[str]:
+    """
+    Build the "Filter Activity (30d)" section: one Unicode block-bar per
+    filter (scaled to the most-active filter), flagging any filter whose
+    block rate exceeds FILTER_OVERACTIVE_THRESHOLD.
+
+    Skips gracefully (returns a placeholder line) if docs/analytics.json is
+    missing or filter_blocks_30d is all zeros.
+    """
+    filter_blocks = _load_filter_blocks_30d()
+    if not filter_blocks or not any(filter_blocks.values()):
+        return ["No filter data yet — check back after first live run"]
+
+    total_evaluated = _count_signal_evaluations_30d()
+    max_count = max(filter_blocks.values())
+
+    lines: list[str] = []
+    for name in FILTER_BLOCK_KEYS:
+        count = filter_blocks.get(name, 0)
+        filled = round((count / max_count) * FILTER_BAR_WIDTH) if max_count else 0
+        bar = "█" * filled + "░" * (FILTER_BAR_WIDTH - filled)
+        block_rate = count / total_evaluated if total_evaluated else 0.0
+        flag = " ⚠️ potentially over-active" if block_rate > FILTER_OVERACTIVE_THRESHOLD else ""
+        lines.append(f"`{bar}` {name}: {count}{flag}")
+    return lines
+
+
 # ── Message formatter ─────────────────────────────────────────────────────────
 
 def _pnl_str(pnl: float) -> str:
@@ -182,6 +260,7 @@ def build_discord_message(stats: dict) -> tuple[str, str, str]:
             "The bot is live and running — signals will appear here once "
             "a full entry → exit cycle completes."
         )
+        message += "\n\n**Filter Activity (30d)**\n" + "\n".join(build_filter_activity_lines())
         return title, message, colour
 
     # ── Build body ────────────────────────────────────────────────────────────
@@ -234,6 +313,10 @@ def build_discord_message(stats: dict) -> tuple[str, str, str]:
         lines.append(f"**Best trade:** {_trade_line(all_time['best_trade'])}")
     if all_time["worst_trade"] and all_time["worst_trade"] != all_time["best_trade"]:
         lines.append(f"**Worst trade:** {_trade_line(all_time['worst_trade'])}")
+
+    lines.append("")
+    lines.append("**Filter Activity (30d)**")
+    lines.extend(build_filter_activity_lines())
 
     return title, "\n".join(lines), colour
 
