@@ -4,154 +4,251 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Personal algorithmic **paper-trading** bot (Alpaca paper API). Pure Python,
-async I/O via `asyncio.to_thread` over the synchronous `alpaca-py` SDK.
-Backtesting uses yfinance and makes **zero** live broker calls.
+Personal algorithmic **paper-trading** bot for Alpaca's paper API, running a
+9-filter EMA-crossover strategy (`ema_cross_filtered`) across a 5-ticker
+universe (SPY, QQQ, GLD, AAPL, NVDA). A GitHub Actions cron job runs
+`python -m bot job` once per weekday after market close — it evaluates each
+ticker's signal, applies risk/regime/earnings/correlation gates, optionally
+places a paper order, and posts the outcome to Discord. Backtesting
+(`python -m bot backtest`) and the weekly summary use yfinance/CSV data only
+and make **zero** live broker calls.
 
-## Commands
+## Critical rules
 
-All commands assume the working directory is the repo root and use the
-project's Python (`C:\Python312\python.exe` on the dev machine; `python` on
-CI/Linux).
+- Never hardcode credentials or API keys.
+- Never commit `trades_live.csv` or `signal_log.jsonl` with real or synthetic data.
+- Never modify `config.yaml` without running the full backtest to validate the change.
+- Never add a new filter without updating `last_filter_snapshot` in `_compute_filter_snapshot()`.
+- Never change exit logic (stop loss, trailing stop, take profit) without updating the relevant tests in `test_ema_cross.py`.
+- Always run pytest before committing — 43 tests must pass.
+- Always use `[skip ci]` in commit messages to prevent recursive Actions triggers.
+- Always run `git pull` before starting a session to avoid rebase conflicts with Actions commits.
+
+## Architecture
+
+### Config — `bot/config.py`
+
+`Settings` (pydantic-settings) is the **single source of truth**. Priority
+(highest first): init kwargs → env vars → `.env` → `config.yaml` → field
+defaults. Credential fields use `AliasChoices` so `APCA_API_KEY_ID` etc. map
+unambiguously to `settings.apca_api_key_id`.
+
+**Gotcha**: `YamlConfigSource.__call__()` only passes through `config.yaml`
+keys that match a declared field on `Settings` (`k in known` filter). Adding
+a new tunable to `config.yaml` does nothing unless a matching field is also
+added to `Settings` — it's silently dropped, and `getattr(settings, "x",
+default)` elsewhere silently falls back to `default`.
+
+### Data flow: cron → Discord
+
+1. `.github/workflows/daily_job.yml` — Mon–Fri 20:45 UTC cron (or manual
+   `workflow_dispatch`) checks out the repo, installs deps, verifies
+   `APCA_*` secrets are set (exits 1 if not; warns but continues if
+   `DISCORD_WEBHOOK_URL` is unset), then runs `python -m bot job`.
+2. `bot/job.py::run_job` → `_run`:
+   - `BrokerClient.get_account()` — credential/connectivity sanity check.
+   - `RegimeFilter.fetch()` — VIX + SPY/SMA(200), once for the whole run.
+   - `EarningsFilter.fetch()` — earnings dates for all tickers, once.
+   - `CorrelationGuard.fetch_dynamic()` — correlation matrix, once (if `dynamic_correlation`).
+   - `broker.is_trading_day(today)` — exit silently (exit 0) on weekends/holidays.
+   - Per ticker (`_process_ticker`):
+     - Fetch ~60 days warm-up + today's bar (`fetch_bars`).
+     - If today's bar isn't published yet → log `bar_not_ready`, return (exit 0).
+     - Build a fresh strategy instance (`get_strategy`), `on_start()`, feed
+       every bar through `on_bar()` — only the signal from *today's* bar is used.
+     - Write a `signal_evaluation` record to `bot/trade_journal/signal_log.jsonl`
+       (filter snapshot + `blocked_by`), regardless of whether a signal fired.
+     - No signal/HOLD → "Daily Heartbeat" to Discord, return.
+     - Signal fired → "Signal Detected" to Discord (shows regime/earnings/correlation gate results).
+     - `RiskManager.evaluate()` — max positions / notional / drawdown halt.
+     - BUY only: regime (`allow_buy`), earnings (`is_blackout`), correlation
+       (`is_blocked`) gates — any block → "Signal Blocked" to Discord, return.
+     - Size the order: `atr_position_size()` if `atr_sizing`, else flat
+       `max_notional_per_trade`.
+     - `broker.place_market_order(...)` (or just logged in `--dry-run`).
+       On exception or `order.status == "rejected"`: call
+       `strategy.force_exit_position()`, notify "Order Failed"/"Order
+       Rejected", return.
+     - Notify "Trade Opened" (BUY) or "Trade Closed" (SELL).
+3. `job_complete` is appended to `signal_log.jsonl` with elapsed time.
+4. Any unhandled exception anywhere in `_run` → `notify.send("Job Failed", ...)`,
+   write a `job_failed` record, then **re-raise** so GitHub Actions marks the run red.
+5. After the job step, the workflow runs `scripts/analyse_trades.py --out docs/`,
+   commits `docs/analytics.json` back to the repo (`[skip ci]`), and syncs
+   `trades_live.csv` to Google Drive.
+
+### The 9-filter stack (`ema_cross_filtered`)
+
+Filters 1, 2, 4, 9 and both exits live in
+`bot/strategies/ema_cross_filtered.py`; filters 5–8 are job-level gates
+evaluated by `bot/job.py` after a BUY is emitted.
+
+| # | Filter | Where | Gate |
+|---|--------|-------|------|
+| 1 | Trend SMA | strategy | `close > SMA(trend_sma_period)` |
+| 2 | RSI overbought | strategy (lazy) | `RSI(rsi_period) < rsi_overbought`, computed only after Filter 1 passes |
+| 3 | *(retired)* static stop loss | — | superseded by Exit 1; number kept retired so 4–9 match the 2005-2025 sweep (`scripts/tune_filters.py`) |
+| 4 | Volume confirmation | strategy | `volume >= volume_multiplier × N-bar avg volume` |
+| 5 | VIX regime gate | `bot/filters/regime.py` | blocks all BUYs if `VIX > vix_threshold`; fails open |
+| 6 | SPY macro gate | `bot/filters/regime.py` | blocks non-SPY BUYs if `SPY < SMA(spy_sma_period)`; fails open |
+| 7 | Earnings blackout | `bot/earnings.py` | blocks BUYs within `earnings_blackout_days` of an earnings date; fails open |
+| 8 | Correlation guard | `bot/correlation.py` | blocks BUY if correlation with an open position `>= max_correlation`; static matrix fallback |
+| 9 | Weekly EMA confirmation | strategy | `weekly EMA(20) > weekly EMA(50)`; fails permissive |
+
+**Exits** (strategy):
+- **Exit 1 — Trailing stop**: floor starts at `entry_price × (1 - stop_loss_pct/100)`,
+  ratchets up via `highest_price × (1 - trailing_stop_pct/100)`, never moves down.
+- **Exit 2 — Take-profit**: `entry_price + (entry_price × stop_loss_pct/100) × take_profit_rr`
+  (set `take_profit_rr=0` to disable).
+
+### Key files and ownership
+
+- `bot/config.py` — `Settings`, the only place that reads env/`.env`/`config.yaml`.
+- `bot/job.py` — daily orchestration, signal audit log, order placement.
+- `bot/strategies/ema_cross_filtered.py` — filters 1/2/4/9, both exits, `last_filter_snapshot`.
+- `bot/strategies/registry.py` — `get_strategy(name, **kwargs)` / `REGISTRY`.
+- `bot/filters/regime.py` — filters 5/6 (VIX, SPY macro).
+- `bot/earnings.py` — filter 7 (earnings blackout).
+- `bot/correlation.py` — filter 8 (correlation guard, static matrix).
+- `bot/risk/manager.py` — `RiskManager` (positions, notional, drawdown halt, kill switch).
+- `bot/risk/sizing.py` — `atr_position_size()`.
+- `bot/execution/broker.py` — async wrapper over `alpaca-py`.
+- `bot/notify.py` — Discord embed sender (no-op if webhook unset).
+- `bot/weekly_summary.py` — Monday Discord performance summary.
+- `bot/data/historical.py` / `yfinance_historical.py` — bar fetching (Alpaca / yfinance).
+- `scripts/analyse_trades.py` — builds `docs/analytics.json` for the dashboard.
+- `docs/` — static dashboard, deployed via Vercel (`vercel.json`, `outputDirectory: docs`).
+
+## Common tasks
 
 ```powershell
-# Install deps
-python -m pip install -r requirements.txt
-
 # Run all tests
 python -m pytest
 
-# Run a single test file / test
-python -m pytest tests/test_job.py
+# Single test
 python -m pytest tests/test_job.py::test_buy_signal_approved_places_order_and_notifies
 
-# Backtest (zero Alpaca order calls — historical data only)
+# Backtest (yfinance only, zero Alpaca order calls)
 python -m bot backtest --strategy ema_cross_filtered --tickers AAPL --from 2024-01-01 --to 2024-06-01
 python -m bot backtest --strategy ema_cross_filtered --tickers AAPL,MSFT,SPY --from 2020-01-01 --to 2024-06-01
 
 # Compare strategies side by side
 python -m bot compare --tickers AAPL --from 2024-01-01 --to 2024-06-01
 
-# Daily scheduled job (run-once, <60s) — what GitHub Actions runs
-python -m bot job --dry-run     # no orders placed, full log output
-python -m bot job                # places real paper orders if a signal fires
+# Filter parameter sweep (2005-2025, no Alpaca creds, no config.yaml changes)
+python scripts/tune_filters.py
 
-# Continuous live paper-trading loop (WebSocket)
-python -m bot live --dry-run
+# Filter isolation (which exit/entry filter drives a result change)
+python scripts/filter_isolation.py
 
-# Weekly Discord performance summary
+# Synthetic dashboard data test — generate, analyse, then delete the
+# generated trade_journal files (never commit them)
+python scripts/generate_synthetic_trades.py
+python scripts/analyse_trades.py --out docs/ --json
+rm bot/trade_journal/trades_live.csv
+
+# Daily job (dry run — no orders placed)
+python -m bot job --dry-run
+
+# Weekly Discord summary (dry run — prints instead of posting)
 python -m bot weekly --dry-run
+
+# Dashboard deploy — automatic via Vercel on push to main (vercel.json,
+# outputDirectory: docs); no manual deploy step needed.
 ```
 
-## Architecture
+## Known gotchas
 
-```
-config.yaml + .env  →  bot/config.py (Settings)
-                              │
-                       bot/job.py (_run)
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-  RegimeFilter          fetch_bars (per ticker)   RiskManager
-  (VIX / SPY gate,      → strategy.on_bar()       (positions, drawdown,
-   fetched once)        → Signal                   max_notional)
-        │                     │                     │
-        └─────────► allow_buy(ticker) gate ◄────────┘
-                              │
-                    atr_position_size (optional)
-                              │
-                    BrokerClient.place_market_order
-                              │
-                          notify.send (Discord)
-```
+1. **Pydantic silent drop** — see Config section above. A new `config.yaml`
+   key with no matching `Settings` field is silently ignored.
 
-### Config (`bot/config.py`)
+2. **`config.yaml` has duplicate keys — last one wins.** `earnings_blackout_days`,
+   `max_correlation`, `dynamic_correlation`, and `correlation_lookback` are
+   each defined twice. YAML keeps the *last* occurrence with no warning, so
+   the effective values are `earnings_blackout_days=3` (not the `1` near the
+   top), `max_correlation=0.75` (not `0.8`), and **`dynamic_correlation=false`**
+   (not `true`) — the live job is currently using the static correlation
+   matrix, not the dynamic one, despite the Filter 8 section reading
+   "compute correlation matrix from recent returns". Fix carefully and
+   backtest before relying on the dynamic matrix.
 
-`Settings` (pydantic-settings) is the **single source of truth** — nothing
-else should read `os.environ` or `config.yaml` directly. Source priority
-(highest first): init kwargs → env vars → `.env` → `config.yaml` → field
-defaults.
+3. **`bar_not_ready` is a normal, silent no-op.** Alpaca only returns
+   completed bars; if today's bar isn't published yet when the cron fires,
+   `_process_ticker` logs `bar_not_ready` and returns (exit 0) — the job
+   simply re-runs tomorrow. Not a failure.
 
-**Important gotcha**: `YamlConfigSource` only passes through `config.yaml`
-keys that match a declared field on `Settings` (`k in known` filter, see
-`bot/config.py`). Adding a new tunable to `config.yaml` does nothing unless
-a matching field is also added to the `Settings` class — it will be silently
-dropped, and any `getattr(settings, "new_key", default)` call elsewhere will
-silently fall back to its default.
+4. **`_pending_entry` / fill-price lifecycle.** A BUY sets `_in_position=True`,
+   a *provisional* `_entry_price = close`, and `_pending_entry = True`. The
+   real fill price (`bar.open` of the *next* bar) overwrites it, and stops/
+   take-profit are anchored to that. If that next bar has `open <= 0` (bad
+   data), the guard logs `pending_entry_skipped` and waits another bar. In
+   live trading this never crosses job runs — `job.py` builds a fresh
+   strategy instance and calls `on_start()` every run, so multi-bar survival
+   only matters within one run's warm-up loop or a backtest.
 
-### Daily job (`bot/job.py`)
+5. **`force_exit_position()` resyncs strategy state with the broker.** If a
+   BUY order raises or comes back `status == "rejected"`, `job.py` calls
+   `strategy.force_exit_position()` to reset `_in_position`/`_pending_entry`/
+   `_entry_price` to flat. Without this the strategy would believe it holds a
+   position the broker never opened and would stop emitting signals for that
+   ticker.
 
-Entry point `run_job(dry_run)` → `_run`. Per-run sequence:
-1. `BrokerClient.get_account()` — environment/credentials sanity check.
-2. `RegimeFilter.from_config(settings)` then `regime.fetch()` — fetches
-   VIX + SPY/SMA(200) **once** for the whole run (not per ticker).
-3. `broker.is_trading_day(today)` — exits silently (exit 0) on weekends/holidays.
-4. Per ticker (`_process_ticker`): fetch ~60 days warm-up + today's bar →
-   feed warm-up bars through the strategy → read the signal from today's bar.
-5. `RiskManager.evaluate()` — position-count and notional checks.
-6. For BUY signals only: `regime.allow_buy(ticker)` — VIX-too-high or
-   SPY-below-SMA200 (non-SPY) blocks the entry (regime fails open/permissive
-   if VIX/SPY data is unavailable).
-7. Order sizing: if `settings.atr_sizing` is true, `atr_position_size()`
-   (in `bot/risk/sizing.py`) scales notional inversely with the ticker's
-   recent volatility (close-to-close ATR%); otherwise flat
-   `max_notional_per_trade` is used. Result is converted to `qty`.
-8. `broker.place_market_order(...)` (or just logged in `--dry-run`), then
-   `notify.send(...)` to Discord.
+6. **Filters 5–9 all "fail open" / "fail permissive" on data errors.**
+   `RegimeFilter`, `EarningsFilter`, `CorrelationGuard`, and the weekly EMA
+   check all return `evaluated: False, passed: True` if their yfinance call
+   fails — a data outage never silently halts trading, but it also means a
+   *persistent* outage silently disables those filters with only a
+   `*_fetch_failed` / `*_data_unavailable` warning log, no alert.
 
-Any unhandled exception is caught in `run_job`, sent to Discord, and
-re-raised so GitHub Actions marks the run as failed.
+7. **Correlation guard's static matrix is the real fallback today.**
+   `bot/correlation.py::_STATIC_CORRELATIONS` is a hardcoded 60-day matrix
+   from a point-in-time backtest. `fetch_dynamic()` only replaces it when
+   `dynamic_correlation` is true *and* the yfinance call succeeds — given
+   gotcha #2, that's currently never, so every run uses the static table.
 
-### Strategies (`bot/strategies/`)
+8. **`highest_correlation()` return type vs. `_build_filter_record()`
+   check.** `CorrelationGuard.highest_correlation()` returns a
+   `(ticker, correlation)` tuple, but `bot/job.py::_build_filter_record()`
+   tests `isinstance(corr_value, (int, float))` — a tuple never matches, so
+   the `"correlation"` entry in `signal_log.jsonl` / `last_filter_snapshot`
+   always reports `evaluated: False`. The actual BUY gate
+   (`corr_guard.is_blocked()`) is unaffected — only the audit log
+   under-reports.
 
-Strategies implement the `Strategy` protocol in `base.py`
-(`on_start` / `on_bar` → `Signal | None` / `on_stop`) and are looked up by
-name via `bot/strategies/registry.py::REGISTRY` /
-`get_strategy(name, **kwargs)`. The engine (`job.py`, `main.py`,
-`backtest.py`) never imports a concrete strategy class — only the registry.
-`get_strategy` forwards all settings as kwargs; each strategy's `**kwargs`
-constructor ignores params it doesn't use. To add a strategy: create the
-class, register it in `REGISTRY`, set `strategy: <name>` in `config.yaml`.
+9. **Three different trade-journal CSV schemas coexist.**
+   `bot/weekly_summary.py::load_trades()` reads `trades_live.csv` (repo root)
+   with columns `ticker, side, entry_price, exit_price, pnl, entry_ts,
+   exit_ts, qty`. `scripts/analyse_trades.py` reads
+   `bot/trade_journal/trades_live.csv` with columns `id, timestamp, ticker,
+   side, qty, entry_price, exit_price, pnl_usd, reason, strategy`.
+   `bot/logging/logger.py::TradeJournal._COLUMNS` defines a third schema
+   again. Nothing in the live job currently writes any of these files — if
+   you add a writer, pick one schema/path and update all readers, or the
+   dashboard/weekly summary will keep reporting "zero trades".
 
-### Risk (`bot/risk/`)
+10. **`analyse_trades.py`'s plain-text summary crashes on Windows.**
+    `_print_summary()` prints Unicode box-drawing characters (`─`) that raise
+    `UnicodeEncodeError` on the default Windows cp1252 console. Always run it
+    with `--json` and/or `--out docs/` on Windows.
 
-- `manager.py::RiskManager` — stateful per-run gate: max concurrent
-  positions, max notional per trade, drawdown halt (`is_halted`), and
-  `emergency_flatten()` (kill switch — closes all positions, cancels all
-  orders).
-- `sizing.py::atr_position_size` — volatility-scaled notional, clamped to
-  `[min_notional, max_notional]`, falling back to `base_notional` if ATR
-  can't be computed (insufficient history).
+## What not to build
 
-### Regime filter (`bot/filters/regime.py`)
-
-`RegimeFilter` fetches VIX and SPY (via yfinance) once per job run and gates
-BUY entries: VIX above `vix_threshold` blocks all BUYs; SPY below its
-`spy_sma_period`-bar SMA blocks non-SPY BUYs (SPY itself is exempt). Always
-**fails open** — if yfinance/network fails, `allow_buy()` returns `True` for
-everything. `adjusted_stop_pct()` can tighten the stop loss when VIX is
-elevated but below the hard threshold.
-
-### Execution (`bot/execution/broker.py`)
-
-Thin async wrapper over `alpaca-py`'s synchronous client (every call goes
-through `asyncio.to_thread`). Provides `get_account`, `is_trading_day`,
-`get_positions`, `get_open_orders`, `place_market_order`,
-`place_limit_order`, `close_all_positions`, `cancel_all_orders`.
-
-### Data (`bot/data/`)
-
-`historical.py::fetch_bars` fetches OHLCV bars (Alpaca, with a SQLite cache
-under `cache/`); `feed.py` defines the `Bar` dataclass and the live WebSocket
-feed; `yfinance_historical.py` is the alternative source used by
-`backtest.py`.
-
-### Logging & notifications
-
-`bot/logging/logger.py` configures `structlog` (`get_logger(__name__)`) and
-a `TradeJournal` that writes `trades.csv`. `bot/notify.py::send(title,
-message, colour)` posts Discord embeds; a blank `discord_webhook_url`
-disables notifications without error.
+- **No ML-based signals.** The backtest framework, sweep scripts, and tests
+  are all built around deterministic rule-based filters; there's no
+  training/inference infrastructure and adding one is out of scope.
+- **No IWM or TLT.** Both were removed from the ticker universe after the
+  2005-2025 backtest (IWM: 25% win rate, 0.22x R:R, negative Sharpe; TLT: 0%
+  win rate — see `config.yaml` comments). Don't re-add them without new
+  backtest evidence.
+- **No intraday bars.** `timeframe` is `1Day` everywhere and the daily job
+  runs once after market close; switching to `1Min`/`1Hour` would require
+  reworking the scheduler, warm-up windows, and every filter's lookback math.
+- **No more than 9 filters without removing one first.** The numbering is
+  load-bearing for `scripts/tune_filters.py` / `scripts/filter_isolation.py`
+  sweep results and for `last_filter_snapshot`'s fixed key set
+  (`FILTER_KEYS` in `bot/job.py` / `FILTER_BLOCK_KEYS` in
+  `scripts/analyse_trades.py`). Retire a filter's number (like Filter 3)
+  rather than reusing or appending past 9.
 
 ## Testing conventions
 
