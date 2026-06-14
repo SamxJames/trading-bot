@@ -39,24 +39,6 @@ FILTER_BLOCK_KEYS = [
     "spy_macro", "earnings", "correlation", "weekly_ema",
 ]
 
-# Reason values carried by "buy_signal_blocked" (bot/strategies/ema_cross_filtered.py)
-# and "buy_blocked_regime" (bot/filters/regime.py) events.
-_REASON_TO_FILTER_KEY = {
-    "trend_filter":      "trend_sma",
-    "rsi_overbought":    "rsi_overbought",
-    "low_volume":        "volume",
-    "weekly_ema_bearish": "weekly_ema",
-    "vix_too_high":      "vix",
-    "spy_below_sma200":  "spy_macro",
-}
-
-# Events that map directly to a filter without a "reason" field.
-_EVENT_TO_FILTER_KEY = {
-    "buy_blocked_correlation":  "correlation",
-    "earnings_blackout_active": "earnings",
-}
-
-
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _sharpe(returns: pd.Series, rf: float = RISK_FREE_RATE) -> float:
@@ -194,17 +176,18 @@ def _empty_signal_log() -> dict[str, Any]:
 
 def _read_signal_log(log_path: Path) -> dict[str, Any]:
     """
-    Parse signal_log.jsonl for blocked signals, today's evaluated tickers and
-    signals, 30-day filter block counts, and last-run metadata/status.
+    Parse signal_log.jsonl (job_started/job_complete/job_failed/signal_evaluation
+    records written by bot/job.py) for blocked signals, today's evaluated
+    tickers and signals, 30-day filter block counts, and last-run metadata.
     """
     if not log_path.exists():
         return _empty_signal_log()
 
-    now      = datetime.now(timezone.utc)
-    cutoff   = now - timedelta(days=30)
-    today    = now.date()
+    now    = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=30)
+    today  = now.date().isoformat()
 
-    blocked: dict[str, int] = {}
+    blocked_reasons: dict[str, int] = {}
     filter_blocks_30d = {k: 0 for k in FILTER_BLOCK_KEYS}
     last_run = None
     last_run_status = None
@@ -224,7 +207,7 @@ def _read_signal_log(log_path: Path) -> dict[str, Any]:
                 continue
 
             event  = entry.get("event", "")
-            ts_raw = entry.get("timestamp") or entry.get("ts")
+            ts_raw = entry.get("ts")
             ts     = pd.to_datetime(ts_raw, utc=True, errors="coerce") if ts_raw else None
             if ts_raw:
                 last_run = ts_raw
@@ -233,47 +216,36 @@ def _read_signal_log(log_path: Path) -> dict[str, Any]:
                 last_run_status = "ok"
             elif event == "job_failed":
                 last_run_status = "error"
-            elif event in ("buy_signal_blocked", "buy_blocked_regime"):
-                reason = entry.get("reason", "unknown")
-                blocked[reason] = blocked.get(reason, 0) + 1
-            elif event == "buy_blocked_correlation":
-                blocked["correlation"] = blocked.get("correlation", 0) + 1
-            elif event == "earnings_blackout_active":
-                blocked["earnings_blackout"] = blocked.get("earnings_blackout", 0) + 1
-            elif event == "stop_loss_triggered":
-                stop_losses_triggered += 1
-            elif event in ("buy_signal", "sell_signal", "order_placed"):
-                signals_fired += 1
-
-            if ts is not None and pd.notna(ts) and ts >= cutoff:
-                key = None
-                if event in ("buy_signal_blocked", "buy_blocked_regime"):
-                    key = _REASON_TO_FILTER_KEY.get(entry.get("reason"))
-                else:
-                    key = _EVENT_TO_FILTER_KEY.get(event)
-                if key:
-                    filter_blocks_30d[key] += 1
-
-            if ts is not None and pd.notna(ts) and ts.date() == today:
-                ticker = entry.get("ticker")
-                if event == "job_started":
+            elif event == "job_started":
+                if entry.get("date") == today:
                     for t in entry.get("tickers", []):
                         if t not in today_tickers:
                             today_tickers.append(t)
-                elif event == "signal_generated" and ticker:
+            elif event == "signal_evaluation":
+                signal = entry.get("signal")
+                ticker = entry.get("ticker")
+
+                if signal in ("BUY", "SELL"):
+                    signals_fired += 1
+                    if signal == "SELL" and entry.get("signal_reason") == "stop_loss":
+                        stop_losses_triggered += 1
+
+                for key in entry.get("blocked_by") or []:
+                    blocked_reasons[key] = blocked_reasons.get(key, 0) + 1
+                    if ts is not None and pd.notna(ts) and ts >= cutoff and key in filter_blocks_30d:
+                        filter_blocks_30d[key] += 1
+
+                if entry.get("date") == today and ticker:
                     if ticker not in today_tickers:
                         today_tickers.append(ticker)
-                    today_signal_events.setdefault(ticker, {})["action"] = entry.get("signal")
-                    today_signal_events[ticker]["blocked"] = False
-                elif event == "no_signal" and ticker:
-                    if ticker not in today_tickers:
-                        today_tickers.append(ticker)
-                elif event in ("buy_signal_blocked", "buy_blocked_regime") and ticker:
-                    if ticker not in today_tickers:
-                        today_tickers.append(ticker)
-                    rec = today_signal_events.setdefault(ticker, {"action": "BUY"})
-                    rec["blocked"] = True
-                    rec["block_reason"] = entry.get("reason", "unknown")
+                    rec = today_signal_events.setdefault(ticker, {})
+                    if signal in ("BUY", "SELL"):
+                        rec["action"] = signal
+                        rec["blocked"] = False
+                    elif entry.get("blocked_by"):
+                        rec.setdefault("action", "BUY")
+                        rec["blocked"] = True
+                        rec["block_reason"] = entry["blocked_by"][0]
 
     except Exception:
         return _empty_signal_log()
@@ -290,8 +262,8 @@ def _read_signal_log(log_path: Path) -> dict[str, Any]:
         "last_run_status": last_run_status,
         "signals_fired": signals_fired,
         "stop_losses_triggered": stop_losses_triggered,
-        "blocked_reasons": blocked,
-        "total_blocked": sum(blocked.values()),
+        "blocked_reasons": blocked_reasons,
+        "total_blocked": sum(blocked_reasons.values()),
         "today_evaluated": today_tickers,
         "today_signals": today_signals,
         "filter_blocks_30d": filter_blocks_30d,
@@ -314,7 +286,7 @@ def compute(trades_path: Path = TRADES_PATH,
         "actor":       os.environ.get("GITHUB_ACTOR", "cron"),
         "signals_fired":          signal_log.get("signals_fired", 0),
         "blocked_total":          signal_log.get("total_blocked", 0),
-        "blocked_trend_filter":   signal_log.get("blocked_reasons", {}).get("trend_filter", 0),
+        "blocked_trend_filter":   signal_log.get("blocked_reasons", {}).get("trend_sma", 0),
         "blocked_rsi_overbought": signal_log.get("blocked_reasons", {}).get("rsi_overbought", 0),
     }
 

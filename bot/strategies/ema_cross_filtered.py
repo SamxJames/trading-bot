@@ -91,6 +91,11 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         # fetched at most once per ticker per strategy instance.
         self._weekly_ema_cache: dict[str, bool] = {}
 
+        # Snapshot of the entry filters (trend_sma, rsi_overbought, volume,
+        # weekly_ema) as of the most recently processed bar — read by the
+        # daily job to build the signal audit log (signal_log.jsonl).
+        self.last_filter_snapshot: dict[str, dict] = {}
+
         # Position state
         # _pending_entry: True for exactly one bar after BUY fires.
         # On that next bar we set _entry_price = bar.open (actual fill price).
@@ -106,6 +111,7 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         self._pending_entry = False
         self._highest_price = 0.0
         self._take_profit_price = 0.0
+        self.last_filter_snapshot = {}
         super().on_start()
 
     def _reset_position_state(self) -> None:
@@ -125,6 +131,10 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
 
         # Always update EMA (even when stop fires, so future signals stay accurate)
         base_signal = super().on_bar(bar)
+
+        # Snapshot the entry-filter state for this bar (used by the daily job's
+        # signal audit log), independent of whether a crossover occurred.
+        self.last_filter_snapshot = self._compute_filter_snapshot(bar.ticker, close)
 
         # ── Resolve fill price on the bar immediately following the BUY ──────
         # Backtester fills at NEXT bar's open — anchor stops to that price.
@@ -196,51 +206,39 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
 
         # ── BUY signal: apply entry filters ───────────────────────────────────
         if base_signal.type == SignalType.BUY:
+            snapshot = self.last_filter_snapshot
 
             # Filter 1 — Trend filter
-            if len(self._trend_prices) >= self.trend_sma_period:
-                sma = sum(self._trend_prices) / self.trend_sma_period
-                if close <= sma:
-                    self._log.info(
-                        "buy_signal_blocked",
-                        reason="trend_filter",
-                        close=round(close, 4),
-                        sma=round(sma, 4),
-                    )
-                    return None
+            if not snapshot["trend_sma"]["passed"]:
+                self._log.info(
+                    "buy_signal_blocked",
+                    reason="trend_filter",
+                    close=snapshot["trend_sma"]["value"],
+                    sma=snapshot["trend_sma"]["threshold"],
+                )
+                return None
 
             # Filter 2 — RSI confirmation
-            rsi_val = self._compute_rsi()
-            if rsi_val is not None and rsi_val >= self.rsi_overbought:
+            if not snapshot["rsi_overbought"]["passed"]:
                 self._log.info(
                     "buy_signal_blocked",
                     reason="rsi_overbought",
-                    rsi=round(rsi_val, 2),
+                    rsi=snapshot["rsi_overbought"]["value"],
                 )
                 return None
 
             # Filter 4 — Volume confirmation
-            if (
-                self.volume_multiplier > 0
-                and len(self._volume_buffer) >= self.volume_lookback
-            ):
-                # Current bar is already in the buffer — compare against prior bars
-                prior_bars = list(self._volume_buffer)[:-1]
-                if prior_bars:
-                    avg_volume = sum(prior_bars) / len(prior_bars)
-                    current_volume = self._volume_buffer[-1]
-                    if avg_volume > 0 and current_volume < avg_volume * self.volume_multiplier:
-                        self._log.info(
-                            "buy_signal_blocked",
-                            reason="low_volume",
-                            volume=round(current_volume),
-                            avg_volume=round(avg_volume),
-                            ratio=round(current_volume / avg_volume, 2),
-                        )
-                        return None
+            if not snapshot["volume"]["passed"]:
+                self._log.info(
+                    "buy_signal_blocked",
+                    reason="low_volume",
+                    ratio=snapshot["volume"]["value"],
+                    avg_multiplier=snapshot["volume"]["threshold"],
+                )
+                return None
 
             # Filter 9 — Weekly EMA confirmation
-            if self.weekly_ema_filter and not self._weekly_ema_bullish(bar.ticker):
+            if not snapshot["weekly_ema"]["passed"]:
                 self._log.info(
                     "buy_signal_blocked",
                     reason="weekly_ema_bearish",
@@ -255,6 +253,82 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
             return base_signal
 
         return None
+
+    def _compute_filter_snapshot(self, ticker: str, close: float) -> dict[str, dict]:
+        """
+        Evaluate the current state of all four entry filters (trend_sma,
+        rsi_overbought, volume, weekly_ema) for this bar, independent of
+        whether a crossover signal occurred.
+
+        Each entry is ``{"evaluated": bool, "passed": bool, "value": ..., "threshold": ...}``.
+        A filter that can't be evaluated yet (insufficient warm-up data, or
+        disabled) reports ``evaluated=False, passed=True`` (permissive).
+        """
+        snapshot: dict[str, dict] = {}
+
+        # Filter 1 — Trend SMA
+        if len(self._trend_prices) >= self.trend_sma_period:
+            sma = sum(self._trend_prices) / self.trend_sma_period
+            snapshot["trend_sma"] = {
+                "evaluated": True,
+                "passed": close > sma,
+                "value": round(close, 4),
+                "threshold": round(sma, 4),
+            }
+        else:
+            snapshot["trend_sma"] = {
+                "evaluated": False, "passed": True, "value": None, "threshold": None,
+            }
+
+        # Filter 2 — RSI overbought
+        rsi_val = self._compute_rsi()
+        if rsi_val is not None:
+            snapshot["rsi_overbought"] = {
+                "evaluated": True,
+                "passed": rsi_val < self.rsi_overbought,
+                "value": round(rsi_val, 2),
+                "threshold": self.rsi_overbought,
+            }
+        else:
+            snapshot["rsi_overbought"] = {
+                "evaluated": False, "passed": True, "value": None, "threshold": self.rsi_overbought,
+            }
+
+        # Filter 4 — Volume confirmation
+        avg_volume = 0.0
+        if self.volume_multiplier > 0 and len(self._volume_buffer) >= self.volume_lookback:
+            prior_bars = list(self._volume_buffer)[:-1]
+            if prior_bars:
+                avg_volume = sum(prior_bars) / len(prior_bars)
+        if avg_volume > 0:
+            current_volume = self._volume_buffer[-1]
+            ratio = current_volume / avg_volume
+            snapshot["volume"] = {
+                "evaluated": True,
+                "passed": ratio >= self.volume_multiplier,
+                "value": round(ratio, 2),
+                "threshold": self.volume_multiplier,
+            }
+        else:
+            snapshot["volume"] = {
+                "evaluated": False, "passed": True, "value": None, "threshold": self.volume_multiplier,
+            }
+
+        # Filter 9 — Weekly EMA confirmation
+        if self.weekly_ema_filter:
+            bullish = self._weekly_ema_bullish(ticker)
+            snapshot["weekly_ema"] = {
+                "evaluated": True,
+                "passed": bullish,
+                "value": bullish,
+                "threshold": None,
+            }
+        else:
+            snapshot["weekly_ema"] = {
+                "evaluated": False, "passed": True, "value": None, "threshold": None,
+            }
+
+        return snapshot
 
     def _weekly_ema_bullish(self, ticker: str) -> bool:
         """

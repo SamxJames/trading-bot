@@ -39,8 +39,10 @@ Usage
 
 from __future__ import annotations
 
+import json
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
 
@@ -59,6 +61,25 @@ from bot.strategies.base import SignalType
 from bot.strategies.registry import get_strategy
 
 log = get_logger(__name__)
+
+# Filter keys recorded in every signal-evaluation record. Must match
+# scripts/analyse_trades.py::FILTER_BLOCK_KEYS exactly.
+FILTER_KEYS = [
+    "trend_sma", "rsi_overbought", "volume", "vix",
+    "spy_macro", "earnings", "correlation", "weekly_ema",
+]
+
+SIGNAL_LOG_PATH = Path("bot/trade_journal/signal_log.jsonl")
+
+
+def _write_signal_log(record: dict) -> None:
+    """Append one JSON line to the signal audit log. Logging-only — never raises."""
+    try:
+        SIGNAL_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with SIGNAL_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception as exc:
+        log.warning("signal_log_write_failed", error=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +101,11 @@ async def run_job(dry_run: bool = False) -> None:
         await _run(dry_run=dry_run)
     except Exception as exc:
         log.exception("job_failed", error=str(exc))
+        _write_signal_log({
+            "event": "job_failed",
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "error": str(exc),
+        })
         try:
             await notify.send(
                 title="Job Failed",
@@ -91,6 +117,11 @@ async def run_job(dry_run: bool = False) -> None:
         raise
     duration = time.monotonic() - t_start
     log.info("job_complete", duration_seconds=round(duration, 2))
+    _write_signal_log({
+        "event": "job_complete",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "duration_seconds": round(duration, 2),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +136,12 @@ async def _run(dry_run: bool) -> None:
         strategy=settings.strategy,
         tickers=settings.tickers,
     )
+    _write_signal_log({
+        "event": "job_started",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "date": str(date.today()),
+        "tickers": settings.tickers,
+    })
 
     # ── Step 1: Validate environment ─────────────────────────────────────────
     broker = BrokerClient(
@@ -146,6 +183,79 @@ async def _run(dry_run: bool) -> None:
             corr_guard=corr_guard,
             dry_run=dry_run,
         )
+
+
+def _safe_num(value: object) -> float | int | None:
+    """Return `value` if it's a real int/float, else None (guards against mocked objects)."""
+    if isinstance(value, bool):
+        return None
+    return value if isinstance(value, (int, float)) else None
+
+
+def _build_filter_record(
+    strategy: object,
+    ticker: str,
+    regime: RegimeFilter,
+    earnings: EarningsFilter,
+    corr_guard: CorrelationGuard,
+    open_positions: set[str],
+    settings: object,
+) -> dict[str, dict]:
+    """
+    Build the per-filter evaluation snapshot for the signal audit log: the
+    four entry filters from the strategy (trend_sma, rsi_overbought, volume,
+    weekly_ema) plus the four job-level gates (vix, spy_macro, earnings,
+    correlation). Each entry is
+    ``{"evaluated": bool, "passed": bool, "value": ..., "threshold": ...}``,
+    computed independent of today's actual signal.
+    """
+    snapshot = getattr(strategy, "last_filter_snapshot", None)
+    filters: dict[str, dict] = dict(snapshot) if isinstance(snapshot, dict) else {}
+
+    state = regime.state
+    if state.available is True:
+        filters["vix"] = {
+            "evaluated": True,
+            "passed": state.vix <= regime.vix_threshold,
+            "value": round(state.vix, 2),
+            "threshold": _safe_num(regime.vix_threshold),
+        }
+        spy_macro_applies = bool(regime.spy_macro_filter) and ticker != "SPY" and state.spy_sma200 > 0
+        filters["spy_macro"] = {
+            "evaluated": spy_macro_applies,
+            "passed": state.spy_above_sma,
+            "value": round(state.spy_close, 2) if spy_macro_applies else None,
+            "threshold": round(state.spy_sma200, 2) if spy_macro_applies else None,
+        }
+    else:
+        filters["vix"] = {"evaluated": False, "passed": True, "value": None, "threshold": _safe_num(regime.vix_threshold)}
+        filters["spy_macro"] = {"evaluated": False, "passed": True, "value": None, "threshold": None}
+
+    earnings_blocked = bool(earnings.is_blackout(ticker))
+    filters["earnings"] = {
+        "evaluated": True,
+        "passed": not earnings_blocked,
+        "value": earnings_blocked,
+        "threshold": _safe_num(settings.earnings_blackout_days),
+    }
+
+    corr_value = corr_guard.highest_correlation(ticker, open_positions)
+    if isinstance(corr_value, (int, float)):
+        threshold = _safe_num(corr_guard.max_correlation)
+        filters["correlation"] = {
+            "evaluated": True,
+            "passed": threshold is None or abs(corr_value) < threshold,
+            "value": round(corr_value, 2),
+            "threshold": threshold,
+        }
+    else:
+        filters["correlation"] = {"evaluated": False, "passed": True, "value": None, "threshold": _safe_num(corr_guard.max_correlation)}
+
+    # Ensure all 8 keys are present even on a fresh strategy instance.
+    for key in FILTER_KEYS:
+        filters.setdefault(key, {"evaluated": False, "passed": True, "value": None, "threshold": None})
+
+    return filters
 
 
 def _format_filter_status(filter_results: dict[str, tuple[bool, str]]) -> str:
@@ -207,6 +317,11 @@ async def _process_ticker(
     ]
     today_bar = bars[-1]
 
+    # ── Fetch open positions — needed for the correlation guard, risk check,
+    #    audit log, and the immediate signal notification below ──────────────
+    positions = await broker.get_positions()
+    open_positions = {pos.ticker for pos in positions}
+
     # ── Step 4: Run strategy ─────────────────────────────────────────────────
     strategy = get_strategy(
         settings.strategy,
@@ -227,6 +342,22 @@ async def _process_ticker(
         signal = strategy.on_bar(bar)
     # `signal` is now the result from today_bar — the only actionable one.
 
+    # ── Signal audit log — one record per ticker per run, capturing which
+    #    filters were evaluated, which passed, which blocked, and the
+    #    blocking value, regardless of whether a signal fired today ─────────
+    filters = _build_filter_record(strategy, ticker, regime, earnings, corr_guard, open_positions, settings)
+    blocked_by = [name for name, f in filters.items() if f["evaluated"] and not f["passed"]]
+    _write_signal_log({
+        "event": "signal_evaluation",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "date": str(today),
+        "ticker": ticker,
+        "signal": signal.type.value if signal else None,
+        "signal_reason": signal.reason if signal else None,
+        "filters": filters,
+        "blocked_by": blocked_by,
+    })
+
     if signal is None or signal.type == SignalType.HOLD:
         log.info("no_signal", ticker=ticker, date=str(today))
         await notify.send(
@@ -245,11 +376,6 @@ async def _process_ticker(
         signal=signal.type.value,
         reason=signal.reason,
     )
-
-    # ── Fetch open positions — needed for the correlation guard, risk check,
-    #    and the immediate signal notification below ─────────────────────────
-    positions = await broker.get_positions()
-    open_positions = {pos.ticker for pos in positions}
 
     # ── Evaluate regime / earnings / correlation gates up front (BUY only) so
     #    the immediate notification and the later block decision agree ───────

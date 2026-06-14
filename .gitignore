@@ -31,3 +31,4 @@ Scripts/
 .env
 .env.txt
 trades*.csv
+signal_log.jsonl
