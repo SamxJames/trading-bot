@@ -30,9 +30,12 @@ jobs:
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
           APCA_BASE_URL: ${{ secrets.APCA_BASE_URL }}
         run: |
-          if [ -z "$APCA_API_KEY_ID" ]; then echo "APCA_API_KEY_ID is EMPTY"; else echo "APCA_API_KEY_ID is SET (masked)"; fi
-          if [ -z "$APCA_API_SECRET_KEY" ]; then echo "APCA_API_SECRET_KEY is EMPTY"; else echo "APCA_API_SECRET_KEY is SET (masked)"; fi
-          if [ -z "$APCA_BASE_URL" ]; then echo "APCA_BASE_URL is EMPTY"; else echo "APCA_BASE_URL is SET (masked)"; fi
+          if [ -z "$APCA_API_KEY_ID" ]; then echo "APCA_API_KEY_ID is EMPTY"; exit 1; fi
+          echo "APCA_API_KEY_ID is SET (masked)"
+          if [ -z "$APCA_API_SECRET_KEY" ]; then echo "APCA_API_SECRET_KEY is EMPTY"; exit 1; fi
+          echo "APCA_API_SECRET_KEY is SET (masked)"
+          if [ -z "$APCA_BASE_URL" ]; then echo "APCA_BASE_URL is EMPTY"; exit 1; fi
+          echo "APCA_BASE_URL is SET (masked)"
 
       - name: Run daily job
         env:
@@ -61,3 +64,12 @@ jobs:
           GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
           GDRIVE_FILE_ID: "1NOA5b7lYQkp7i6czpqrpnJ9WWfFP3wg-"
         run: python scripts/sync_to_drive.py
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **Trading bot daily job FAILED** — check GitHub Actions: https://github.com/SamxJames/trading-bot/actions\"}"

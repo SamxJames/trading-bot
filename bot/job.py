@@ -480,7 +480,28 @@ async def _process_ticker(
 
     # Live mode — submit the order
     if signal.type == SignalType.BUY:
-        await broker.place_market_order(ticker=ticker, qty=qty, side="buy")
+        try:
+            order = await broker.place_market_order(ticker=ticker, qty=qty, side="buy")
+        except Exception as exc:
+            log.warning("order_failed", ticker=ticker, side="buy", error=str(exc))
+            strategy.force_exit_position()
+            await notify.send(
+                title="Order Failed",
+                message=f"BUY order for {ticker} failed: {exc}",
+                colour="red",
+            )
+            return
+
+        if order.status == "rejected":
+            log.warning("order_rejected", ticker=ticker, side="buy", order_id=order.order_id)
+            strategy.force_exit_position()
+            await notify.send(
+                title="Order Rejected",
+                message=f"BUY order for {ticker} was rejected by the broker (order_id={order.order_id})",
+                colour="red",
+            )
+            return
+
         log.info(
             "order_placed",
             ticker=ticker,

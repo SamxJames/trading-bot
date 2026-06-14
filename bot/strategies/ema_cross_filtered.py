@@ -119,6 +119,20 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         self._highest_price = 0.0
         self._take_profit_price = 0.0
 
+    def force_exit_position(self) -> None:
+        """
+        Force the strategy's position state back to flat.
+
+        Called by the daily job when a BUY order it just placed is rejected
+        or raises an exception, so the strategy's idea of "in position"
+        stays in sync with the broker's — without this, the strategy would
+        never emit another entry/exit signal for a position the broker
+        never actually opened.
+        """
+        self._in_position = False
+        self._pending_entry = False
+        self._entry_price = 0.0
+
     def on_bar(self, bar: Bar) -> Signal | None:
         close = bar.close
 
@@ -138,23 +152,39 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
 
         # ── Resolve fill price on the bar immediately following the BUY ──────
         # Backtester fills at NEXT bar's open — anchor stops to that price.
+        #
+        # _pending_entry can in principle survive across more than one bar if
+        # the fill bar has an invalid open price (guarded below) — it simply
+        # waits for the next bar. In the live daily job this is not a
+        # cross-run risk: job.py builds a fresh strategy instance every run
+        # (get_strategy(...) inside _process_ticker) and on_start() resets
+        # _pending_entry to False, so pending state never spans separate job
+        # invocations. Multi-bar survival only matters within a single run's
+        # warm-up loop / a backtest run.
         if self._pending_entry:
-            self._entry_price = bar.open
-            self._pending_entry = False
-            self._highest_price = self._entry_price
-            # Set take-profit target (disabled if take_profit_rr == 0)
-            if self.take_profit_rr > 0:
-                initial_risk = self._entry_price * self.stop_loss_pct / 100.0
-                self._take_profit_price = self._entry_price + initial_risk * self.take_profit_rr
+            if bar.open <= 0.0:
+                self._log.warning(
+                    "pending_entry_skipped",
+                    reason="invalid_open_price",
+                    open=bar.open,
+                )
             else:
-                self._take_profit_price = 0.0
-            self._log.info(
-                "position_opened",
-                entry=round(self._entry_price, 4),
-                initial_stop=round(self._entry_price * (1 - self.stop_loss_pct / 100), 4),
-                take_profit=round(self._take_profit_price, 4) if self._take_profit_price else "disabled",
-                trailing_stop_pct=self.trailing_stop_pct,
-            )
+                self._entry_price = bar.open
+                self._pending_entry = False
+                self._highest_price = self._entry_price
+                # Set take-profit target (disabled if take_profit_rr == 0)
+                if self.take_profit_rr > 0:
+                    initial_risk = self._entry_price * self.stop_loss_pct / 100.0
+                    self._take_profit_price = self._entry_price + initial_risk * self.take_profit_rr
+                else:
+                    self._take_profit_price = 0.0
+                self._log.info(
+                    "position_opened",
+                    entry=round(self._entry_price, 4),
+                    initial_stop=round(self._entry_price * (1 - self.stop_loss_pct / 100), 4),
+                    take_profit=round(self._take_profit_price, 4) if self._take_profit_price else "disabled",
+                    trailing_stop_pct=self.trailing_stop_pct,
+                )
 
         # ── EXIT CHECKS (highest priority — checked before any new signal) ───
         if self._in_position:
