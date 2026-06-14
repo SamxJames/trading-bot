@@ -98,7 +98,7 @@ async def run_job(dry_run: bool = False) -> None:
     """
     t_start = time.monotonic()
     try:
-        await _run(dry_run=dry_run)
+        signal_funnel = await _run(dry_run=dry_run)
     except Exception as exc:
         log.exception("job_failed", error=str(exc))
         _write_signal_log({
@@ -116,11 +116,12 @@ async def run_job(dry_run: bool = False) -> None:
             pass  # do not mask the original exception
         raise
     duration = time.monotonic() - t_start
-    log.info("job_complete", duration_seconds=round(duration, 2))
+    log.info("job_complete", duration_seconds=round(duration, 2), **signal_funnel)
     _write_signal_log({
         "event": "job_complete",
         "ts": datetime.now(timezone.utc).isoformat(),
         "duration_seconds": round(duration, 2),
+        **signal_funnel,
     })
 
 
@@ -128,7 +129,7 @@ async def run_job(dry_run: bool = False) -> None:
 # Inner orchestration
 # ---------------------------------------------------------------------------
 
-async def _run(dry_run: bool) -> None:
+async def _run(dry_run: bool) -> dict[str, int]:
     settings = get_settings()
     log.info(
         "job_started",
@@ -168,11 +169,12 @@ async def _run(dry_run: bool) -> None:
     today = date.today()
     if not await broker.is_trading_day(today):
         log.info("market_closed_today", date=str(today))
-        return  # weekend / holiday — exit 0, no notification needed
+        return dict(_EMPTY_FUNNEL)  # weekend / holiday — exit 0, no notification needed
 
     # ── Steps 3-6: Per-ticker pass ────────────────────────────────────────────
+    signal_funnel = dict(_EMPTY_FUNNEL)
     for ticker in settings.tickers:
-        await _process_ticker(
+        ticker_funnel = await _process_ticker(
             ticker=ticker,
             today=today,
             broker=broker,
@@ -183,6 +185,8 @@ async def _run(dry_run: bool) -> None:
             corr_guard=corr_guard,
             dry_run=dry_run,
         )
+        for key in signal_funnel:
+            signal_funnel[key] += ticker_funnel[key]
 
     # ── Shadow trading: simulate the strategy on real data, place no orders ───
     if settings.shadow_mode:
@@ -190,6 +194,8 @@ async def _run(dry_run: bool) -> None:
 
         shadow = ShadowTrader(settings, regime, earnings, corr_guard)
         await shadow.run(today)
+
+    return signal_funnel
 
 
 def _safe_num(value: object) -> float | int | None:
@@ -275,6 +281,13 @@ def _format_filter_status(filter_results: dict[str, tuple[bool, str]]) -> str:
     )
 
 
+_EMPTY_FUNNEL: dict[str, int] = {
+    "crossovers_detected": 0,
+    "signals_fired": 0,
+    "signals_blocked": 0,
+}
+
+
 async def _process_ticker(
     ticker: str,
     today: date,
@@ -285,8 +298,17 @@ async def _process_ticker(
     earnings: EarningsFilter,
     corr_guard: CorrelationGuard,
     dry_run: bool,
-) -> None:
-    """Run the full signal → risk → order pipeline for a single ticker."""
+) -> dict[str, int]:
+    """
+    Run the full signal → risk → order pipeline for a single ticker.
+
+    Returns a per-ticker signal-funnel record — `{"crossovers_detected",
+    "signals_fired", "signals_blocked"}` — for the weekly signal frequency
+    report. `crossovers_detected` covers raw EMA crossover BUY signals on
+    today's bar; `signals_fired`/`signals_blocked` reflect whether
+    filters 1/2/4/9 (evaluated inside the strategy) let that crossover
+    through as a BUY signal.
+    """
 
     # ── Step 3: Fetch today's bar + warm-up ──────────────────────────────────
     warmup_start = today - timedelta(days=61)   # ~60 trading days of context
@@ -307,7 +329,7 @@ async def _process_ticker(
             last_bar_date=str(last_bar_date),
             today=str(today),
         )
-        return  # market may have just closed; job will re-run tomorrow
+        return dict(_EMPTY_FUNNEL)  # market may have just closed; job will re-run tomorrow
 
     # Build Bar objects the strategy expects
     bars: list[Bar] = [
@@ -344,9 +366,12 @@ async def _process_ticker(
     strategy.on_start()
 
     # Feed warm-up bars to prime indicators; today's bar produces the signal.
-    signal = None
-    for bar in bars:
-        signal = strategy.on_bar(bar)
+    for bar in bars[:-1]:
+        strategy.on_bar(bar)
+    crossovers_before_today = _safe_num(getattr(strategy, "crossovers_detected", 0)) or 0
+    signal = strategy.on_bar(today_bar)
+    crossovers_after_today = _safe_num(getattr(strategy, "crossovers_detected", 0)) or 0
+    today_crossover = crossovers_after_today > crossovers_before_today
     # `signal` is now the result from today_bar — the only actionable one.
 
     # ── Signal audit log — one record per ticker per run, capturing which
@@ -365,6 +390,16 @@ async def _process_ticker(
         "blocked_by": blocked_by,
     })
 
+    # ── Signal funnel — raw EMA crossover BUYs vs. filtered-strategy BUYs ────
+    crossovers_detected = 1 if today_crossover else 0
+    signals_fired = 1 if (signal is not None and signal.type == SignalType.BUY) else 0
+    signals_blocked = max(crossovers_detected - signals_fired, 0)
+    funnel: dict[str, int] = {
+        "crossovers_detected": crossovers_detected,
+        "signals_fired": signals_fired,
+        "signals_blocked": signals_blocked,
+    }
+
     if signal is None or signal.type == SignalType.HOLD:
         log.info("no_signal", ticker=ticker, date=str(today))
         await notify.send(
@@ -375,7 +410,7 @@ async def _process_ticker(
             ),
             colour="grey",
         )
-        return
+        return funnel
 
     log.info(
         "signal_generated",
@@ -433,7 +468,7 @@ async def _process_ticker(
             ),
             colour="amber",
         )
-        return
+        return funnel
 
     # ── Regime / earnings / correlation gate (BUY only) ───────────────────────
     blocked = {name: reason for name, (ok, reason) in filter_results.items() if not ok}
@@ -447,7 +482,7 @@ async def _process_ticker(
             ),
             colour="amber",
         )
-        return
+        return funnel
 
     # ── Step 6: Place order ──────────────────────────────────────────────────
     if settings.atr_sizing:
@@ -483,7 +518,7 @@ async def _process_ticker(
             ),
             colour="green",
         )
-        return
+        return funnel
 
     # Live mode — submit the order
     if signal.type == SignalType.BUY:
@@ -497,7 +532,7 @@ async def _process_ticker(
                 message=f"BUY order for {ticker} failed: {exc}",
                 colour="red",
             )
-            return
+            return funnel
 
         if order.status == "rejected":
             log.warning("order_rejected", ticker=ticker, side="buy", order_id=order.order_id)
@@ -507,7 +542,7 @@ async def _process_ticker(
                 message=f"BUY order for {ticker} was rejected by the broker (order_id={order.order_id})",
                 colour="red",
             )
-            return
+            return funnel
 
         log.info(
             "order_placed",
@@ -549,3 +584,5 @@ async def _process_ticker(
             ),
             colour="green",
         )
+
+    return funnel

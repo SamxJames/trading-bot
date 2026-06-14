@@ -233,6 +233,15 @@ def _compute_shadow_stats(shadow_path: Path = SHADOW_TRADES_PATH) -> dict[str, A
 
 # ── signal log ────────────────────────────────────────────────────────────────
 
+def _empty_signal_funnel() -> dict[str, Any]:
+    return {
+        "crossovers_30d": 0,
+        "signals_fired_30d": 0,
+        "signals_blocked_30d": 0,
+        "filter_funnel": {k: 0 for k in FILTER_BLOCK_KEYS},
+    }
+
+
 def _empty_signal_log() -> dict[str, Any]:
     return {
         "available": False,
@@ -245,6 +254,7 @@ def _empty_signal_log() -> dict[str, Any]:
         "today_evaluated": [],
         "today_signals": [],
         "filter_blocks_30d": {k: 0 for k in FILTER_BLOCK_KEYS},
+        "signal_funnel": _empty_signal_funnel(),
     }
 
 
@@ -269,6 +279,9 @@ def _read_signal_log(log_path: Path) -> dict[str, Any]:
     stop_losses_triggered = 0
     today_tickers: list[str] = []
     today_signal_events: dict[str, dict] = {}
+    crossovers_30d = 0
+    funnel_signals_fired_30d = 0
+    signals_blocked_30d = 0
 
     try:
         for line in log_path.read_text().splitlines():
@@ -288,6 +301,10 @@ def _read_signal_log(log_path: Path) -> dict[str, Any]:
 
             if event == "job_complete":
                 last_run_status = "ok"
+                if ts is not None and pd.notna(ts) and ts >= cutoff:
+                    crossovers_30d += entry.get("crossovers_detected", 0)
+                    funnel_signals_fired_30d += entry.get("signals_fired", 0)
+                    signals_blocked_30d += entry.get("signals_blocked", 0)
             elif event == "job_failed":
                 last_run_status = "error"
             elif event == "job_started":
@@ -341,6 +358,12 @@ def _read_signal_log(log_path: Path) -> dict[str, Any]:
         "today_evaluated": today_tickers,
         "today_signals": today_signals,
         "filter_blocks_30d": filter_blocks_30d,
+        "signal_funnel": {
+            "crossovers_30d": crossovers_30d,
+            "signals_fired_30d": funnel_signals_fired_30d,
+            "signals_blocked_30d": signals_blocked_30d,
+            "filter_funnel": filter_blocks_30d,
+        },
     }
 
 
@@ -374,6 +397,7 @@ def compute(trades_path: Path = TRADES_PATH,
         "today_evaluated":  signal_log.get("today_evaluated", []),
         "today_signals":    signal_log.get("today_signals", []),
         "filter_blocks_30d": signal_log.get("filter_blocks_30d", {k: 0 for k in FILTER_BLOCK_KEYS}),
+        "signal_funnel":    signal_log.get("signal_funnel", _empty_signal_funnel()),
         "shadow":           _compute_shadow_stats(),
     }
 

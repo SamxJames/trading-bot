@@ -152,6 +152,10 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         # daily job to build the signal audit log (signal_log.jsonl).
         self.last_filter_snapshot: dict[str, dict] = {}
 
+        # Count of raw EMA crossover BUY signals seen this run, before any
+        # of filters 1/2/4/9 are applied — used by the weekly signal funnel.
+        self.crossovers_detected: int = 0
+
         # Position state
         # _pending_entry: True for exactly one bar after BUY fires.
         # On that next bar we set _entry_price = bar.open (actual fill price).
@@ -169,6 +173,7 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         self._take_profit_price = 0.0
         self._trend_sum = 0.0
         self.last_filter_snapshot = {}
+        self.crossovers_detected = 0
         super().on_start()
 
     def _reset_position_state(self) -> None:
@@ -205,6 +210,8 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
 
         # Always update EMA (even when stop fires, so future signals stay accurate)
         base_signal = super().on_bar(bar)
+        if base_signal is not None and base_signal.type == SignalType.BUY:
+            self.crossovers_detected += 1
 
         # Snapshot the entry-filter state for this bar (used by the daily job's
         # signal audit log), independent of whether a crossover occurred.

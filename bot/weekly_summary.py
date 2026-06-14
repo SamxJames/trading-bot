@@ -192,6 +192,67 @@ def _count_signal_evaluations_30d(path: Path = SIGNAL_LOG_PATH) -> int:
     return count
 
 
+SIGNAL_FUNNEL_TOP_N = 3
+
+
+def _load_signal_funnel(path: Path = ANALYTICS_PATH) -> dict:
+    """Read signal_funnel from docs/analytics.json. Returns {} if missing/unreadable."""
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data.get("signal_funnel", {})
+
+
+def build_signal_funnel_lines() -> list[str]:
+    """
+    Build the "Signal Funnel (30d)" section: EMA crossovers detected vs.
+    passed/blocked by filters, plus the top blocking filters.
+
+    Skips gracefully (returns a placeholder line) if docs/analytics.json is
+    missing or signal_funnel data is unavailable.
+    """
+    funnel = _load_signal_funnel()
+    if not funnel:
+        return ["No signal funnel data yet — check back after first live run"]
+
+    crossovers = funnel.get("crossovers_30d", 0)
+    fired      = funnel.get("signals_fired_30d", 0)
+    blocked    = funnel.get("signals_blocked_30d", 0)
+
+    if crossovers == 0:
+        return ["No EMA crossovers detected in last 30 days — market may be trending sideways."]
+
+    fired_pct   = round(fired / crossovers * 100)
+    blocked_pct = round(blocked / crossovers * 100)
+
+    lines = [
+        f"EMA crossovers detected: {crossovers}",
+        f"Passed all filters:      {fired}  ({fired_pct}%)",
+        f"Blocked by filters:      {blocked}  ({blocked_pct}%)",
+    ]
+
+    if fired == 0:
+        lines.append("")
+        lines.append("⚠️ All crossovers blocked by filters — consider reviewing thresholds.")
+
+    filter_funnel = funnel.get("filter_funnel", {})
+    top_blockers = sorted(
+        ((name, count) for name, count in filter_funnel.items() if count > 0),
+        key=lambda x: x[1],
+        reverse=True,
+    )[:SIGNAL_FUNNEL_TOP_N]
+    if top_blockers:
+        lines.append("")
+        lines.append("Top blockers:")
+        for name, count in top_blockers:
+            lines.append(f"  {name:<12} {count} blocks")
+
+    return lines
+
+
 def build_filter_activity_lines() -> list[str]:
     """
     Build the "Filter Activity (30d)" section: one Unicode block-bar per
@@ -261,6 +322,7 @@ def build_discord_message(stats: dict) -> tuple[str, str, str]:
             "a full entry → exit cycle completes."
         )
         message += "\n\n**Filter Activity (30d)**\n" + "\n".join(build_filter_activity_lines())
+        message += "\n\n**Signal Funnel (30d)**\n" + "\n".join(build_signal_funnel_lines())
         return title, message, colour
 
     # ── Build body ────────────────────────────────────────────────────────────
@@ -317,6 +379,10 @@ def build_discord_message(stats: dict) -> tuple[str, str, str]:
     lines.append("")
     lines.append("**Filter Activity (30d)**")
     lines.extend(build_filter_activity_lines())
+
+    lines.append("")
+    lines.append("**Signal Funnel (30d)**")
+    lines.extend(build_signal_funnel_lines())
 
     return title, "\n".join(lines), colour
 
