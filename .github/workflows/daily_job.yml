@@ -29,6 +29,7 @@ jobs:
           APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
           APCA_BASE_URL: ${{ secrets.APCA_BASE_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           if [ -z "$APCA_API_KEY_ID" ]; then echo "APCA_API_KEY_ID is EMPTY"; exit 1; fi
           echo "APCA_API_KEY_ID is SET (masked)"
@@ -36,6 +37,7 @@ jobs:
           echo "APCA_API_SECRET_KEY is SET (masked)"
           if [ -z "$APCA_BASE_URL" ]; then echo "APCA_BASE_URL is EMPTY"; exit 1; fi
           echo "APCA_BASE_URL is SET (masked)"
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then echo "DISCORD_WEBHOOK_URL not set — notifications disabled"; else echo "DISCORD_WEBHOOK_URL is SET (masked)"; fi
 
       - name: Run daily job
         env:

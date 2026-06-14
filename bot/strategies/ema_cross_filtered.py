@@ -1,40 +1,92 @@
 """
 EMA Crossover — filtered variant (v2).
 
-Extends v1 with three new improvements:
+Wraps the base EMA(fast_period)/EMA(slow_period) crossover signal from
+bot/strategies/ema_cross.py with a stack of 9 numbered entry filters plus
+two position-exit mechanisms. Filters 1, 2, 4, 9 and both exits are
+implemented in this file and evaluated inside on_bar(); filters 5-8 are
+job-level gates evaluated by bot/job.py after this strategy emits a BUY
+(see bot/filters/regime.py, bot/earnings.py, bot/correlation.py).
 
-  FILTER 4 — Volume confirmation
-    Only emit BUY if current bar volume >= volume_multiplier × N-bar average.
-    Rationale: low-volume crossovers are statistically less reliable breakouts.
-    Log event: "buy_signal_blocked", reason="low_volume"
+THE 9 FILTERS
+-------------
+  FILTER 1 — Trend SMA gate (this file)
+    Only emit BUY if close > SMA(trend_sma_period).
+    Rationale: don't buy into an established downtrend.
 
-  EXIT 1 — Trailing stop loss (replaces static stop)
+  FILTER 2 — RSI overbought gate (this file)
+    Only emit BUY if RSI(rsi_period) < rsi_overbought. Computed lazily —
+    only once Filter 1 has passed, since RSI is only needed at the point
+    of BUY evaluation and computing it on every bar wastes cycles in
+    backtests.
+    Rationale: don't buy an already-extended move.
+
+  FILTER 3 — (retired) static stop loss
+    v1 used a fixed stop_loss_pct exit as "Filter 3". Superseded by
+    EXIT 1 (trailing stop) below. The number stays retired (rather than
+    being reassigned) so filters 4-9 keep the numbering used in the
+    2005-2025 sweep results (scripts/tune_filters.py).
+
+  FILTER 4 — Volume confirmation (this file)
+    Only emit BUY if current bar volume >= volume_multiplier × N-bar
+    average volume.
+    Rationale: low-volume crossovers are statistically less reliable
+    breakouts.
+
+  FILTER 5 — VIX regime gate (bot/filters/regime.py, job-level)
+    Blocks all BUYs when VIX > vix_threshold.
+    Rationale: don't open new risk during a volatility spike.
+    Fails open (allows BUYs) if VIX data is unavailable.
+
+  FILTER 6 — SPY macro / SMA(spy_sma_period) gate (bot/filters/regime.py, job-level)
+    Blocks non-SPY BUYs when SPY closes below its own SMA(spy_sma_period).
+    Rationale: don't fight a broad market downtrend.
+    Fails open if SPY data is unavailable.
+
+  FILTER 7 — Earnings blackout (bot/earnings.py, job-level)
+    Blocks BUYs within earnings_blackout_days of an earnings date.
+    Rationale: avoid the binary-event risk of an earnings gap.
+
+  FILTER 8 — Correlation guard (bot/correlation.py, job-level)
+    Blocks a BUY if its correlation with an already-open position is >=
+    max_correlation.
+    Rationale: avoid concentrating risk in highly-correlated tickers.
+
+  FILTER 9 — Weekly EMA confirmation (this file, set weekly_ema_filter=False
+  to disable)
+    Only emit BUY if the ticker's weekly EMA(20) > weekly EMA(50).
+    Fetches ~60 weeks of weekly closes via yfinance (lazily, once per
+    ticker per strategy instance, then cached).
+    Rationale: avoid taking daily-chart entries against the weekly trend.
+    Fails permissively — if yfinance is unavailable or returns insufficient
+    history, the check is skipped and the BUY is allowed.
+
+POSITION EXITS
+--------------
+  EXIT 1 — Trailing stop loss (replaces FILTER 3's static stop)
     Initial floor = entry_price × (1 - stop_loss_pct / 100).
     As price rises the floor ratchets up:
         current_stop = max(initial_stop, highest_price × (1 - trailing_stop_pct / 100))
     The stop only ever moves up — never down.
     Rationale: locks in profit as a trade moves in our favour.
-    Log event: "stop_loss_triggered", trailing=True/False
 
   EXIT 2 — Take-profit target (set take_profit_rr=0 to disable)
     target = entry_price + (entry_price × stop_loss_pct/100) × take_profit_rr
-    Exits at a fixed R:R multiple rather than waiting for EMA crossover reversal.
+    Exits at a fixed R:R multiple rather than waiting for an EMA crossover
+    reversal.
     Rationale: captures gains before a mean-reversion eats them.
-    Log event: "take_profit_triggered"
 
-  FILTER 9 — Weekly EMA confirmation (set weekly_ema_filter=False to disable)
-    Only emit BUY if the ticker's weekly EMA(20) > weekly EMA(50).
-    Fetches ~60 weeks of weekly closes via yfinance (lazily, once per ticker
-    per strategy instance, then cached).
-    Rationale: avoid taking daily-chart entries against the weekly trend.
-    Fails permissively — if yfinance is unavailable or returns insufficient
-    history, the check is skipped and the BUY is allowed.
-    Log event: "buy_signal_blocked", reason="weekly_ema_bearish"
-
-All v1 filters remain unchanged:
-  FILTER 1 — Trend SMA gate (close > SMA(trend_sma_period))
-  FILTER 2 — RSI overbought gate (RSI < rsi_overbought)
-  FILTER 3 — Stop loss (now superseded by EXIT 1, kept for log compatibility)
+LOG EVENTS EMITTED BY THIS FILE
+--------------------------------
+  "buy_signal_blocked"     reason="trend_filter"          (Filter 1)
+  "buy_signal_blocked"     reason="rsi_overbought"        (Filter 2)
+  "buy_signal_blocked"     reason="low_volume"            (Filter 4)
+  "buy_signal_blocked"     reason="weekly_ema_bearish"    (Filter 9)
+  "weekly_ema_data_unavailable"                           (Filter 9, fail-open)
+  "position_opened"                                       (entry fill resolved)
+  "pending_entry_skipped"  reason="invalid_open_price"    (zero/negative open guard)
+  "take_profit_triggered"                                 (Exit 2)
+  "stop_loss_triggered"    trailing=True/False            (Exit 1)
 """
 
 from __future__ import annotations
@@ -84,6 +136,10 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
 
         # Indicator buffers
         self._trend_prices: Deque[float] = deque(maxlen=trend_sma_period)
+        self._trend_sum: float = 0.0  # running sum of _trend_prices — avoids O(n) sum() every bar
+        # 3x rsi_period + 1: pandas_ta's Wilder smoothing needs several
+        # periods of history to converge before the RSI value stabilises —
+        # 3x the period is a conservative minimum for that warm-up.
         self._rsi_prices: Deque[float] = deque(maxlen=rsi_period * 3 + 1)
         self._volume_buffer: Deque[float] = deque(maxlen=volume_lookback)
 
@@ -111,6 +167,7 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         self._pending_entry = False
         self._highest_price = 0.0
         self._take_profit_price = 0.0
+        self._trend_sum = 0.0
         self.last_filter_snapshot = {}
         super().on_start()
 
@@ -137,7 +194,10 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         close = bar.close
 
         # Always update all indicator buffers first
+        if len(self._trend_prices) == self.trend_sma_period:
+            self._trend_sum -= self._trend_prices[0]
         self._trend_prices.append(close)
+        self._trend_sum += close
         self._rsi_prices.append(close)
         volume = getattr(bar, "volume", None)
         if volume and float(volume) > 0:
@@ -162,6 +222,8 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
         # invocations. Multi-bar survival only matters within a single run's
         # warm-up loop / a backtest run.
         if self._pending_entry:
+            # Zero/negative open guard: a bad data feed bar (open <= 0) must
+            # not become the anchor for entry price, stops, and take-profit.
             if bar.open <= 0.0:
                 self._log.warning(
                     "pending_entry_skipped",
@@ -248,7 +310,16 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
                 )
                 return None
 
-            # Filter 2 — RSI confirmation
+            # Filter 2 — RSI confirmation (computed lazily — only needed now
+            # that Filter 1 has passed and a BUY is actually on the table)
+            rsi_val = self._compute_rsi()
+            if rsi_val is not None:
+                snapshot["rsi_overbought"] = {
+                    "evaluated": True,
+                    "passed": rsi_val < self.rsi_overbought,
+                    "value": round(rsi_val, 2),
+                    "threshold": self.rsi_overbought,
+                }
             if not snapshot["rsi_overbought"]["passed"]:
                 self._log.info(
                     "buy_signal_blocked",
@@ -286,9 +357,11 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
 
     def _compute_filter_snapshot(self, ticker: str, close: float) -> dict[str, dict]:
         """
-        Evaluate the current state of all four entry filters (trend_sma,
-        rsi_overbought, volume, weekly_ema) for this bar, independent of
-        whether a crossover signal occurred.
+        Evaluate the current state of the trend_sma, volume, and weekly_ema
+        entry filters for this bar, independent of whether a crossover
+        signal occurred. rsi_overbought is reported here as a not-yet-evaluated
+        placeholder — it's computed lazily in the BUY branch of on_bar(),
+        only once Filter 1 (trend_sma) has passed.
 
         Each entry is ``{"evaluated": bool, "passed": bool, "value": ..., "threshold": ...}``.
         A filter that can't be evaluated yet (insufficient warm-up data, or
@@ -298,7 +371,7 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
 
         # Filter 1 — Trend SMA
         if len(self._trend_prices) >= self.trend_sma_period:
-            sma = sum(self._trend_prices) / self.trend_sma_period
+            sma = self._trend_sum / len(self._trend_prices)
             snapshot["trend_sma"] = {
                 "evaluated": True,
                 "passed": close > sma,
@@ -310,19 +383,12 @@ class EmaCrossFilteredStrategy(EmaCrossStrategy):
                 "evaluated": False, "passed": True, "value": None, "threshold": None,
             }
 
-        # Filter 2 — RSI overbought
-        rsi_val = self._compute_rsi()
-        if rsi_val is not None:
-            snapshot["rsi_overbought"] = {
-                "evaluated": True,
-                "passed": rsi_val < self.rsi_overbought,
-                "value": round(rsi_val, 2),
-                "threshold": self.rsi_overbought,
-            }
-        else:
-            snapshot["rsi_overbought"] = {
-                "evaluated": False, "passed": True, "value": None, "threshold": self.rsi_overbought,
-            }
+        # Filter 2 — RSI overbought. Computed lazily in the BUY branch of
+        # on_bar() (only once Filter 1 has passed) — not here, since RSI is
+        # only needed at the point of BUY evaluation.
+        snapshot["rsi_overbought"] = {
+            "evaluated": False, "passed": True, "value": None, "threshold": self.rsi_overbought,
+        }
 
         # Filter 4 — Volume confirmation
         avg_volume = 0.0
