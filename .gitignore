@@ -32,3 +32,4 @@ Scripts/
 .env.txt
 trades*.csv
 signal_log.jsonl
+.vercel

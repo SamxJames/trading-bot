@@ -1,0 +1,7 @@
+{
+  "framework": null,
+  "outputDirectory": "docs",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/$1" }
+  ]
+}
