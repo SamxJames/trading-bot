@@ -1,18 +1,61 @@
 {
-  "zero_trades": true,
-  "reason": "trades_live.csv not found",
-  "generated_at": "2026-06-12T22:14:06.978450+00:00",
+  "generated_at": "2026-06-15T14:33:19.060080+00:00",
   "last_run": {
     "timestamp": null,
-    "run_id": "27446090379",
-    "run_number": "15",
+    "status": null,
+    "run_id": "27553653462",
+    "run_number": "4",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
     "blocked_trend_filter": 0,
     "blocked_rsi_overbought": 0
   },
+  "last_run_status": null,
   "signal_log": {
-    "available": false
-  }
+    "available": false,
+    "last_run": null,
+    "last_run_status": null,
+    "signals_fired": 0,
+    "stop_losses_triggered": 0,
+    "blocked_reasons": {},
+    "total_blocked": 0,
+    "today_evaluated": [],
+    "today_signals": [],
+    "filter_blocks_30d": {
+      "trend_sma": 0,
+      "rsi_overbought": 0,
+      "volume": 0,
+      "vix": 0,
+      "spy_macro": 0,
+      "earnings": 0,
+      "correlation": 0,
+      "weekly_ema": 0
+    }
+  },
+  "open_positions": [],
+  "today_evaluated": [],
+  "today_signals": [],
+  "filter_blocks_30d": {
+    "trend_sma": 0,
+    "rsi_overbought": 0,
+    "volume": 0,
+    "vix": 0,
+    "spy_macro": 0,
+    "earnings": 0,
+    "correlation": 0,
+    "weekly_ema": 0
+  },
+  "zero_trades": true,
+  "reason": "trades_live.csv not found",
+  "equity_curve": [
+    {
+      "date": "2026-05-16",
+      "equity": 100000.0
+    },
+    {
+      "date": "2026-06-15",
+      "equity": 100000.0
+    }
+  ]
 }
