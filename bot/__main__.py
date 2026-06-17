@@ -86,6 +86,20 @@ def main() -> None:
         help="Print summary to console instead of posting to Discord",
     )
 
+    # ── rebalance ─────────────────────────────────────────────────────────────
+    rebalance = subparsers.add_parser(
+        "rebalance",
+        help="Run the monthly Dual Momentum (GEM) portfolio rebalance",
+    )
+    rebalance.add_argument(
+        "--dry-run", dest="dry_run", action="store_true", default=False,
+        help="Compute + log + notify without placing any orders",
+    )
+    rebalance.add_argument(
+        "--force", dest="force", action="store_true", default=False,
+        help="Ignore the last-trading-day-of-month guard (for manual runs)",
+    )
+
     args = parser.parse_args()
 
     # ── dispatch ──────────────────────────────────────────────────────────────
@@ -148,6 +162,15 @@ def main() -> None:
         from bot.weekly_summary import run_weekly_summary
         try:
             asyncio.run(run_weekly_summary(dry_run=args.dry_run))
+        except KeyboardInterrupt:
+            pass
+        except Exception:
+            sys.exit(1)
+
+    elif args.command == "rebalance":
+        from bot.rebalance import run_rebalance
+        try:
+            asyncio.run(run_rebalance(dry_run=args.dry_run, force=args.force))
         except KeyboardInterrupt:
             pass
         except Exception:

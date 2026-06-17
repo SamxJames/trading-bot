@@ -1,0 +1,81 @@
+name: Monthly GEM Rebalance
+
+on:
+  schedule:
+    # Fire on the 28th-31st at 20:45 UTC; `bot rebalance` itself only acts on
+    # the true last trading day of the month (strategy.should_rebalance), so
+    # exactly one of these runs places orders and the rest no-op.
+    - cron: '45 20 28-31 * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force rebalance even if today is not the last trading day'
+        required: false
+        default: 'false'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  rebalance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check secrets configured
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          APCA_BASE_URL: ${{ secrets.APCA_BASE_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$APCA_API_KEY_ID" ]; then echo "APCA_API_KEY_ID is EMPTY"; exit 1; fi
+          if [ -z "$APCA_API_SECRET_KEY" ]; then echo "APCA_API_SECRET_KEY is EMPTY"; exit 1; fi
+          if [ -z "$APCA_BASE_URL" ]; then echo "APCA_BASE_URL is EMPTY"; exit 1; fi
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then echo "DISCORD_WEBHOOK_URL not set — notifications disabled"; else echo "DISCORD_WEBHOOK_URL is SET (masked)"; fi
+
+      - name: Run GEM monthly rebalance
+        env:
+          APCA_API_KEY_ID:     ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          APCA_BASE_URL:       ${{ secrets.APCA_BASE_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            python -m bot rebalance --force
+          else
+            python -m bot rebalance
+          fi
+
+      - name: Regenerate analytics JSON
+        if: always()
+        run: python scripts/analyse_trades.py --out docs/
+
+      - name: Commit rebalance log + analytics back to repo
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/analytics.json
+          [ -f bot/trade_journal/rebalance_log.jsonl ] && git add bot/trade_journal/rebalance_log.jsonl || true
+          git diff --staged --quiet || git commit -m "chore: GEM rebalance log + analytics [skip ci]"
+          git push
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"🔴 **GEM monthly rebalance FAILED** — check GitHub Actions: https://github.com/SamxJames/trading-bot/actions\"}"

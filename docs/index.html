@@ -471,6 +471,44 @@
     </a>
   </div>
 
+  <!-- ★ Dual Momentum (GEM) — profit-maximisation centrepiece -->
+  <div class="card" id="gem-panel" style="margin-top:24px;border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset">
+    <div class="card-header">
+      <div class="card-title" style="color:var(--accent)">★ Dual Momentum (GEM)</div>
+      <div style="font-size:10px;color:var(--muted)">Monthly global equities momentum · SPY / VEU / AGG · paper · since inception</div>
+    </div>
+    <div class="card-body">
+      <div id="gem-empty" class="zero-state" style="padding:16px 0">
+        <p>No GEM rebalance yet — first 100% allocation posts on the next month-end rebalance.</p>
+      </div>
+      <div id="gem-content" style="display:none">
+        <div class="kpi-strip" style="margin:0 0 18px">
+          <div class="kpi">
+            <div class="kpi-label">Current allocation</div>
+            <div class="kpi-value" id="gem-holding" style="color:var(--accent)">—</div>
+            <div class="kpi-sub" id="gem-last">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">GEM CAGR</div>
+            <div class="kpi-value" id="gem-cagr">—</div>
+            <div class="kpi-sub" id="gem-return">since inception</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">SPY benchmark CAGR</div>
+            <div class="kpi-value" id="gem-spy-cagr">—</div>
+            <div class="kpi-sub">buy &amp; hold</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">12-mo momentum</div>
+            <div class="kpi-value" id="gem-mom" style="font-size:13px;line-height:1.5">—</div>
+            <div class="kpi-sub">trailing total return</div>
+          </div>
+        </div>
+        <canvas id="gem-chart" style="max-height:240px"></canvas>
+      </div>
+    </div>
+  </div>
+
   <!-- KPI strip -->
   <div class="kpi-strip" id="kpi-strip">
     <div class="kpi">
@@ -791,7 +829,7 @@ Chart.defaults.borderColor = '#252a2d';
 Chart.defaults.font.family = "'DM Mono', monospace";
 Chart.defaults.font.size = 11;
 
-let equityChart, pnlChart, exitChart, filterBlocksChart;
+let equityChart, pnlChart, exitChart, filterBlocksChart, gemChart;
 
 function fmt(n, prefix = '$') {
   if (n === null || n === undefined) return '—';
@@ -822,6 +860,77 @@ function populateLastRun(lr) {
   if (lr.status === 'error') dot.className = 'dot red';
   else if (lr.status === 'ok') dot.className = 'dot';
   else dot.className = 'dot amber';
+}
+
+// ── Dual Momentum (GEM) panel ──────────────────────────────────────────────
+function buildGemPanel(gem) {
+  const empty   = document.getElementById('gem-empty');
+  const content = document.getElementById('gem-content');
+  if (!gem || !gem.available) {
+    empty.style.display = 'block';
+    content.style.display = 'none';
+    if (gemChart) { gemChart.destroy(); gemChart = null; }
+    return;
+  }
+  empty.style.display = 'none';
+  content.style.display = 'block';
+
+  const r = gem.readings || {};
+  document.getElementById('gem-holding').textContent = gem.current_holding || '—';
+  document.getElementById('gem-last').textContent =
+    gem.last_rebalance ? `as of ${gem.last_rebalance}` : '';
+
+  const cagrEl = document.getElementById('gem-cagr');
+  cagrEl.textContent = (gem.cagr ?? 0).toFixed(2) + '%';
+  cagrEl.className = 'kpi-value ' + colorClass(gem.cagr);
+
+  const tr = gem.total_return_pct ?? 0;
+  document.getElementById('gem-return').textContent =
+    `${tr >= 0 ? '+' : ''}${tr.toFixed(2)}% total return`;
+
+  document.getElementById('gem-spy-cagr').textContent = (gem.spy_cagr ?? 0).toFixed(2) + '%';
+
+  const pct = v => (v === null || v === undefined) ? 'n/a' : `${(v * 100).toFixed(1)}%`;
+  document.getElementById('gem-mom').innerHTML =
+    `${r.us_ticker || 'US'} ${pct(r.us_12m)} · ${r.intl_ticker || 'Intl'} ${pct(r.intl_12m)}` +
+    `<br>T-bill ${pct(r.tbill_12m)}`;
+
+  // Equity curve vs SPY benchmark overlay
+  const gc = gem.equity_curve || [];
+  const sc = gem.spy_curve || [];
+  const labels = gc.map(p => new Date(p.date).toLocaleDateString('en-GB', {month:'short', year:'2-digit'}));
+
+  if (gemChart) gemChart.destroy();
+  gemChart = new Chart(document.getElementById('gem-chart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'GEM', data: gc.map(p => p.equity),
+          borderColor: '#00e5a0', backgroundColor: '#00e5a018',
+          borderWidth: 1.5, fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4,
+        },
+        {
+          label: 'SPY buy & hold', data: sc.map(p => p.equity),
+          borderColor: '#0090ff', backgroundColor: 'transparent',
+          borderWidth: 1.5, borderDash: [5, 4], fill: false, tension: 0.3, pointRadius: 0, pointHoverRadius: 4,
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: true, labels: { color: '#9aa1a6', boxWidth: 16 } },
+        tooltip: { callbacks: { label: ctx =>
+          ` ${ctx.dataset.label}: $` + ctx.parsed.y.toLocaleString('en-GB', {minimumFractionDigits:2}) } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+        y: { grid: { color: '#252a2d' }, ticks: { callback: v => '$' + (v/1000).toFixed(0) + 'k' } }
+      }
+    }
+  });
 }
 
 // ── Bot Status panel ─────────────────────────────────────────────────────────
@@ -1273,8 +1382,9 @@ async function loadData() {
       buildShadowPanel(data.shadow);
     }
 
-    // Always populate bot status, filter chart, last run + signal filters
+    // Always populate bot status, GEM panel, filter chart, last run + signal filters
     populateBotStatus(data);
+    buildGemPanel(data.gem);
     buildFilterBlocksChart(data.filter_blocks_30d);
     if (data.last_run) populateLastRun(data.last_run);
     if (data.last_run) buildSignalFilters(data.last_run, data.signal_log);
@@ -1291,6 +1401,7 @@ async function loadData() {
     console.error('Failed to load analytics:', err);
     showZeroState({ equity_curve: [] });
     populateBotStatus({});
+    buildGemPanel(null);
     buildFilterBlocksChart({});
   }
 

@@ -30,7 +30,9 @@ import pandas as pd
 TRADES_PATH  = Path("bot/trade_journal/trades_live.csv")
 LOG_PATH     = Path("bot/trade_journal/signal_log.jsonl")
 SHADOW_TRADES_PATH = Path("bot/trade_journal/shadow_trades.csv")
+GEM_LOG_PATH = Path("bot/trade_journal/rebalance_log.jsonl")
 STARTING_EQUITY = 100_000.0
+GEM_DEFAULT_ALLOCATION = 50_000.0
 RISK_FREE_RATE  = 0.04
 
 # Filter names shown on the dashboard's "filter blocks" bar chart, and the
@@ -367,6 +369,180 @@ def _read_signal_log(log_path: Path) -> dict[str, Any]:
     }
 
 
+# ── Dual Momentum (GEM) ─────────────────────────────────────────────────────
+
+def _empty_gem() -> dict[str, Any]:
+    return {
+        "available":        False,
+        "current_holding":  None,
+        "allocation_usd":   GEM_DEFAULT_ALLOCATION,
+        "last_rebalance":   None,
+        "readings":         {},
+        "history":          [],
+        "equity_curve":     _flat_equity_curve(),
+        "spy_curve":        _flat_equity_curve(),
+        "cagr":             0.0,
+        "spy_cagr":         0.0,
+        "total_return_pct": 0.0,
+    }
+
+
+def _read_gem_records(log_path: Path) -> list[dict]:
+    """Parsed `gem_rebalance` records (with a holding), sorted by date."""
+    if not log_path.exists():
+        return []
+    records: list[dict] = []
+    try:
+        for line in log_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("event") == "gem_rebalance" and entry.get("holding"):
+                records.append(entry)
+    except Exception:
+        return []
+    records.sort(key=lambda r: r.get("date", ""))
+    return records
+
+
+def _monthly_closes_map(ticker: str, start: str) -> dict[str, float]:
+    """{ 'YYYY-MM': month-end adjusted close } from yfinance. {} on any error."""
+    try:
+        import yfinance as yf
+
+        df = yf.Ticker(ticker).history(start=start, interval="1mo", auto_adjust=True)
+        if df is None or df.empty:
+            return {}
+        closes = df["Close"].dropna()
+        return {ts.strftime("%Y-%m"): float(v) for ts, v in closes.items()}
+    except Exception:
+        return {}
+
+
+def _cagr_from_curve(curve: list[dict]) -> float:
+    if len(curve) < 2:
+        return 0.0
+    try:
+        start_eq = curve[0]["equity"]
+        end_eq   = curve[-1]["equity"]
+        d0 = datetime.fromisoformat(curve[0]["date"]).date()
+        d1 = datetime.fromisoformat(curve[-1]["date"]).date()
+        years = (d1 - d0).days / 365.25
+        if years <= 0 or start_eq <= 0 or end_eq <= 0:
+            return 0.0
+        return round(((end_eq / start_eq) ** (1.0 / years) - 1.0) * 100, 2)
+    except Exception:
+        return 0.0
+
+
+def _gem_equity_curves(records: list[dict], allocation: float) -> tuple[list[dict], list[dict]]:
+    """Reconstruct GEM and SPY-benchmark monthly equity curves from the rebalance
+    log, replaying each held asset's monthly total return via yfinance.
+
+    Returns (gem_curve, spy_curve); falls back to flat curves on data error.
+    """
+    if not records:
+        return _flat_equity_curve(), _flat_equity_curve()
+
+    first_month = records[0]["date"][:7]
+    # Fetch a small buffer before inception so the first month has a prior close.
+    start_dt = (datetime.fromisoformat(records[0]["date"]).date()
+                - timedelta(days=40)).isoformat()
+
+    held = {r["holding"] for r in records}
+    needed = held | {"SPY"}
+    maps = {t: _monthly_closes_map(t, start_dt) for t in needed}
+    spy_map = maps.get("SPY", {})
+    if not spy_map or any(not maps[t] for t in held):
+        return _flat_equity_curve(), _flat_equity_curve()
+
+    # Step function: holding effective from each rebalance month onward.
+    schedule = [(r["date"][:7], r["holding"]) for r in records]
+
+    def holding_for(month: str) -> str:
+        current = schedule[0][1]
+        for m, h in schedule:
+            if m <= month:
+                current = h
+            else:
+                break
+        return current
+
+    months = sorted(m for m in spy_map if m >= first_month)
+    if len(months) < 2:
+        return _flat_equity_curve(), _flat_equity_curve()
+
+    equity = spy_equity = float(allocation)
+    gem_curve = [{"date": f"{months[0]}-01", "equity": round(equity, 2), "holding": holding_for(months[0])}]
+    spy_curve = [{"date": f"{months[0]}-01", "equity": round(spy_equity, 2)}]
+
+    for prev, cur in zip(months[:-1], months[1:]):
+        h = holding_for(prev)
+        hmap = maps.get(h, {})
+        if prev in hmap and cur in hmap and hmap[prev]:
+            equity *= hmap[cur] / hmap[prev]
+        if prev in spy_map and cur in spy_map and spy_map[prev]:
+            spy_equity *= spy_map[cur] / spy_map[prev]
+        gem_curve.append({"date": f"{cur}-01", "equity": round(equity, 2), "holding": holding_for(cur)})
+        spy_curve.append({"date": f"{cur}-01", "equity": round(spy_equity, 2)})
+
+    return gem_curve, spy_curve
+
+
+def _compute_gem(log_path: Path = GEM_LOG_PATH) -> dict[str, Any]:
+    """Build the `gem` analytics block: current allocation, momentum readings,
+    rebalance history, and the GEM-vs-SPY equity curve since inception."""
+    records = _read_gem_records(log_path)
+    if not records:
+        return _empty_gem()
+
+    last = records[-1]
+    allocation = float(last.get("allocation_usd") or GEM_DEFAULT_ALLOCATION)
+
+    readings = {
+        "us_ticker":    last.get("us_ticker", "SPY"),
+        "intl_ticker":  last.get("intl_ticker", "VEU"),
+        "bonds_ticker": last.get("bonds_ticker", "AGG"),
+        "us_12m":       last.get("us_12m"),
+        "intl_12m":     last.get("intl_12m"),
+        "tbill_12m":    last.get("tbill_12m"),
+    }
+    history = [
+        {
+            "date":      r.get("date"),
+            "holding":   r.get("holding"),
+            "changed":   r.get("changed"),
+            "us_12m":    r.get("us_12m"),
+            "intl_12m":  r.get("intl_12m"),
+            "tbill_12m": r.get("tbill_12m"),
+        }
+        for r in records
+    ]
+
+    gem_curve, spy_curve = _gem_equity_curves(records, allocation)
+    gem_cagr = _cagr_from_curve(gem_curve)
+    spy_cagr = _cagr_from_curve(spy_curve)
+    total_return = round((gem_curve[-1]["equity"] - allocation) / allocation * 100, 2) if gem_curve else 0.0
+
+    return {
+        "available":        True,
+        "current_holding":  last.get("holding"),
+        "allocation_usd":   allocation,
+        "last_rebalance":   last.get("date"),
+        "readings":         readings,
+        "history":          history,
+        "equity_curve":     gem_curve,
+        "spy_curve":        spy_curve,
+        "cagr":             gem_cagr,
+        "spy_cagr":         spy_cagr,
+        "total_return_pct": total_return,
+    }
+
+
 # ── main analytics ────────────────────────────────────────────────────────────
 
 def compute(trades_path: Path = TRADES_PATH,
@@ -399,6 +575,7 @@ def compute(trades_path: Path = TRADES_PATH,
         "filter_blocks_30d": signal_log.get("filter_blocks_30d", {k: 0 for k in FILTER_BLOCK_KEYS}),
         "signal_funnel":    signal_log.get("signal_funnel", _empty_signal_funnel()),
         "shadow":           _compute_shadow_stats(),
+        "gem":              _compute_gem(),
     }
 
     if not trades_path.exists():
