@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Dict, Type
 
 from bot.strategies.base import Strategy
+from bot.strategies.dual_momentum import DualMomentumStrategy
 from bot.strategies.ema_cross import EmaCrossStrategy
 from bot.strategies.ema_cross_filtered import EmaCrossFilteredStrategy
 from bot.strategies.rsi_strategy import RSIStrategy
@@ -23,6 +24,7 @@ REGISTRY: Dict[str, Type] = {
     "ema_cross":          EmaCrossStrategy,
     "ema_cross_filtered": EmaCrossFilteredStrategy,
     "rsi":                RSIStrategy,
+    "dual_momentum":      DualMomentumStrategy,
 }
 
 

@@ -184,6 +184,22 @@ class Settings(BaseSettings):
     shadow_mode: bool = False         # run ShadowTrader after the live loop (simulated fills, no orders)
 
     # -------------------------------------------------------------------------
+    # Dual Momentum (GEM) — separate monthly portfolio-allocation engine.
+    # Runs via `python -m bot rebalance` on its own capital slice; the EMA bot
+    # is unaffected. momentum IS the strategy here — the 9-filter stack does
+    # not apply.
+    # -------------------------------------------------------------------------
+    gem_enabled: bool = True                  # master switch for the GEM rebalance job
+    gem_lookback_months: int = 12             # trailing momentum window (academic precedent — do not tune)
+    gem_assets: Dict[str, str] = {            # us / intl / bonds tickers held 100% one at a time
+        "us": "SPY",
+        "intl": "VEU",
+        "bonds": "AGG",
+    }
+    gem_rebalance: str = "monthly"            # rebalance cadence
+    gem_allocation_usd: float = 50_000.0      # paper capital GEM manages (EMA bot manages the rest)
+
+    # -------------------------------------------------------------------------
     # Notifications (optional)
     # -------------------------------------------------------------------------
     discord_webhook_url: str = Field(
