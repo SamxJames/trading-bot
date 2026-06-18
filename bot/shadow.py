@@ -68,7 +68,69 @@ SHADOW_STATE_PATH = Path("bot/trade_journal/shadow_state.json")
 SHADOW_TRADES_FIELDS = [
     "id", "ticker", "side", "entry_price", "exit_price", "pnl_usd",
     "pnl_pct", "reason", "entry_date", "exit_date", "bars_held",
+    # Dual-track execution realism (Part 1): the columns above are the *ideal*
+    # fills (exact next-day open / exit close, no friction). The columns below
+    # are the *realistic* fills after slippage + half-spread + commission.
+    "entry_price_real", "exit_price_real", "pnl_usd_real", "pnl_pct_real",
+    "commission",
 ]
+
+# Default execution-cost assumptions — conservative for liquid ETFs / large-caps
+# on daily bars. Overridable via config.yaml (slippage_bps / spread_bps /
+# commission_per_trade). See apply_execution_costs().
+DEFAULT_SLIPPAGE_BPS = 8.0
+DEFAULT_SPREAD_BPS = 3.0
+DEFAULT_COMMISSION_PER_TRADE = 0.0
+
+
+def _num(value: object, default: float) -> float:
+    """Return `value` as a float if it's a real int/float (not bool), else `default`.
+
+    Guards against MagicMock settings in tests and missing/None config values.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return float(default)
+    return float(value)
+
+
+def apply_execution_costs(
+    fill_price: float,
+    side: str,
+    ticker: str,
+    *,
+    slippage_bps: float = DEFAULT_SLIPPAGE_BPS,
+    spread_bps: float = DEFAULT_SPREAD_BPS,
+) -> float:
+    """Return the realistic fill price after slippage and half the bid-ask spread.
+
+    Real fills are never as good as the printed price. A BUY is filled *higher*
+    (you pay up), a SELL is filled *lower* (you give up edge) by::
+
+        adverse_bps = slippage_bps + spread_bps / 2
+
+    where ``spread_bps`` is the *full* typical bid-ask spread and you cross half
+    of it on a market order. With the defaults that is 8 + 1.5 = 9.5 bps of
+    adverse movement per fill.
+
+    Parameters
+    ----------
+    fill_price:    The ideal (frictionless) fill price.
+    side:          "BUY" or "SELL" (case-insensitive).
+    ticker:        Accepted for a future per-ticker spread table; currently
+                   unused — every liquid ETF/large-cap uses the same defaults.
+    slippage_bps:  Adverse slippage in basis points.
+    spread_bps:    Full typical bid-ask spread in basis points (half is crossed).
+
+    Notes
+    -----
+    Commission is a flat per-trade *dollar* cost, not a price adjustment, so it
+    is applied to PnL by the caller (see ShadowTrader._check_exit), not here.
+    """
+    adverse_bps = float(slippage_bps) + float(spread_bps) / 2.0
+    factor = adverse_bps / 10_000.0
+    if str(side).upper() == "BUY":
+        return fill_price * (1.0 + factor)
+    return fill_price * (1.0 - factor)
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +194,13 @@ class ShadowTrader:
         self.regime = regime
         self.earnings = earnings
         self.corr_guard = corr_guard
+        # Execution-cost assumptions, read once. Coerced via _num so MagicMock
+        # settings in tests fall back to the conservative defaults.
+        self.slippage_bps = _num(getattr(settings, "slippage_bps", None), DEFAULT_SLIPPAGE_BPS)
+        self.spread_bps = _num(getattr(settings, "spread_bps", None), DEFAULT_SPREAD_BPS)
+        self.commission_per_trade = _num(
+            getattr(settings, "commission_per_trade", None), DEFAULT_COMMISSION_PER_TRADE
+        )
 
     async def run(self, today: date) -> None:
         """Evaluate every configured ticker for *today* and persist state."""
@@ -265,9 +334,16 @@ class ShadowTrader:
             initial_risk = entry_price * strategy.stop_loss_pct / 100.0
             take_profit_price = entry_price + initial_risk * strategy.take_profit_rr
 
+        # Realistic entry fill: a BUY pays up by slippage + half-spread.
+        entry_price_real = apply_execution_costs(
+            entry_price, "BUY", ticker,
+            slippage_bps=self.slippage_bps, spread_bps=self.spread_bps,
+        )
+
         state[ticker] = {
             "id": f"S{ticker}-{today.isoformat()}",
             "entry_price": entry_price,
+            "entry_price_real": entry_price_real,
             "entry_date": today.isoformat(),
             "highest_price": entry_price,
             "take_profit_price": take_profit_price,
@@ -309,8 +385,22 @@ class ShadowTrader:
 
         entry_price = position["entry_price"]
         qty = position["qty"]
+
+        # ── Ideal (frictionless) round trip ──────────────────────────────────
         pnl_usd = round((exit_price - entry_price) * qty, 2)
         pnl_pct = round((exit_price - entry_price) / entry_price * 100, 2)
+
+        # ── Realistic round trip: worse entry, worse exit, plus commission on
+        #    both legs. entry_price_real falls back to ideal for positions
+        #    opened before this field existed. ──────────────────────────────
+        entry_price_real = position.get("entry_price_real", entry_price)
+        exit_price_real = apply_execution_costs(
+            exit_price, "SELL", ticker,
+            slippage_bps=self.slippage_bps, spread_bps=self.spread_bps,
+        )
+        commission = round(self.commission_per_trade * 2.0, 4)  # entry + exit legs
+        pnl_usd_real = round((exit_price_real - entry_price_real) * qty - commission, 2)
+        pnl_pct_real = round((exit_price_real - entry_price_real) / entry_price_real * 100, 2)
 
         _append_trade_row({
             "id": position["id"],
@@ -324,6 +414,15 @@ class ShadowTrader:
             "entry_date": position["entry_date"],
             "exit_date": today.isoformat(),
             "bars_held": bars_held,
+            "entry_price_real": round(entry_price_real, 4),
+            "exit_price_real": round(exit_price_real, 4),
+            "pnl_usd_real": pnl_usd_real,
+            "pnl_pct_real": pnl_pct_real,
+            "commission": commission,
         })
-        log.info("shadow_position_closed", ticker=ticker, reason=reason, pnl_usd=pnl_usd)
+        log.info(
+            "shadow_position_closed",
+            ticker=ticker, reason=reason,
+            pnl_usd=pnl_usd, pnl_usd_real=pnl_usd_real,
+        )
         del state[ticker]

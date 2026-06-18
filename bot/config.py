@@ -183,6 +183,13 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     shadow_mode: bool = False         # run ShadowTrader after the live loop (simulated fills, no orders)
 
+    # Shadow trading execution realism — friction applied to every simulated
+    # fill so shadow PnL reflects net (post-cost) reality. See
+    # bot/shadow.py::apply_execution_costs.
+    slippage_bps: float = 8.0          # adverse slippage per fill (bps)
+    spread_bps: float = 3.0            # full typical bid-ask spread (bps); half is crossed per fill
+    commission_per_trade: float = 0.0  # flat $/trade; Alpaca is commission-free for stocks/ETFs
+
     # -------------------------------------------------------------------------
     # Dual Momentum (GEM) — separate monthly portfolio-allocation engine.
     # Runs via `python -m bot rebalance` on its own capital slice; the EMA bot

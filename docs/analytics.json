@@ -1,72 +1,257 @@
 {
-  "generated_at": "2026-07-10T21:40:29.057243+00:00",
+  "generated_at": "2026-06-18T16:42:23.705611+00:00",
   "last_run": {
-    "timestamp": "2026-07-10T21:40:28.512632+00:00",
+    "timestamp": "2026-06-18T16:42:11.970938+00:00",
     "status": "ok",
-    "run_id": "29125397728",
-    "run_number": "35",
-    "actor": "SamxJames",
-    "signals_fired": 0,
-    "blocked_total": 0,
+    "run_id": null,
+    "run_number": null,
+    "actor": "cron",
+    "signals_fired": 78,
+    "blocked_total": 13,
     "blocked_trend_filter": 0,
     "blocked_rsi_overbought": 0
   },
   "last_run_status": "ok",
   "signal_log": {
     "available": true,
-    "last_run": "2026-07-10T21:40:28.512632+00:00",
+    "last_run": "2026-06-18T16:42:11.970938+00:00",
     "last_run_status": "ok",
-    "signals_fired": 0,
-    "stop_losses_triggered": 0,
-    "blocked_reasons": {},
-    "total_blocked": 0,
+    "signals_fired": 78,
+    "stop_losses_triggered": 13,
+    "blocked_reasons": {
+      "earnings": 13
+    },
+    "total_blocked": 13,
     "today_evaluated": [
-      "SPY",
-      "QQQ",
-      "GLD",
-      "AAPL",
-      "NVDA"
+      "AAPL"
     ],
-    "today_signals": [],
+    "today_signals": [
+      {
+        "ticker": "AAPL",
+        "action": "BUY",
+        "blocked": false
+      }
+    ],
     "filter_blocks_30d": {
       "trend_sma": 0,
       "rsi_overbought": 0,
       "volume": 0,
       "vix": 0,
       "spy_macro": 0,
-      "earnings": 0,
+      "earnings": 13,
       "correlation": 0,
       "weekly_ema": 0
+    },
+    "signal_funnel": {
+      "crossovers_30d": 0,
+      "signals_fired_30d": 60,
+      "signals_blocked_30d": 0,
+      "filter_funnel": {
+        "trend_sma": 0,
+        "rsi_overbought": 0,
+        "volume": 0,
+        "vix": 0,
+        "spy_macro": 0,
+        "earnings": 13,
+        "correlation": 0,
+        "weekly_ema": 0
+      }
     }
   },
   "open_positions": [],
   "today_evaluated": [
-    "SPY",
-    "QQQ",
-    "GLD",
-    "AAPL",
-    "NVDA"
+    "AAPL"
   ],
-  "today_signals": [],
+  "today_signals": [
+    {
+      "ticker": "AAPL",
+      "action": "BUY",
+      "blocked": false
+    }
+  ],
   "filter_blocks_30d": {
     "trend_sma": 0,
     "rsi_overbought": 0,
     "volume": 0,
     "vix": 0,
     "spy_macro": 0,
-    "earnings": 0,
+    "earnings": 13,
     "correlation": 0,
     "weekly_ema": 0
+  },
+  "signal_funnel": {
+    "crossovers_30d": 0,
+    "signals_fired_30d": 60,
+    "signals_blocked_30d": 0,
+    "filter_funnel": {
+      "trend_sma": 0,
+      "rsi_overbought": 0,
+      "volume": 0,
+      "vix": 0,
+      "spy_macro": 0,
+      "earnings": 13,
+      "correlation": 0,
+      "weekly_ema": 0
+    }
+  },
+  "shadow": {
+    "total_trades": 0,
+    "win_rate": 0.0,
+    "sharpe": 0.0,
+    "total_return_pct": 0.0,
+    "avg_rr": 0.0,
+    "max_drawdown_pct": 0.0,
+    "equity_curve": [
+      {
+        "date": "2026-05-19",
+        "equity": 100000.0
+      },
+      {
+        "date": "2026-06-18",
+        "equity": 100000.0
+      }
+    ],
+    "ideal": {
+      "total_trades": 0,
+      "win_rate": 0.0,
+      "sharpe": 0.0,
+      "total_return_pct": 0.0,
+      "avg_rr": 0.0,
+      "max_drawdown_pct": 0.0,
+      "equity_curve": [
+        {
+          "date": "2026-05-19",
+          "equity": 100000.0
+        },
+        {
+          "date": "2026-06-18",
+          "equity": 100000.0
+        }
+      ]
+    },
+    "realistic": {
+      "total_trades": 0,
+      "win_rate": 0.0,
+      "sharpe": 0.0,
+      "total_return_pct": 0.0,
+      "avg_rr": 0.0,
+      "max_drawdown_pct": 0.0,
+      "equity_curve": [
+        {
+          "date": "2026-05-19",
+          "equity": 100000.0
+        },
+        {
+          "date": "2026-06-18",
+          "equity": 100000.0
+        }
+      ]
+    },
+    "execution_drag_pct": 0.0,
+    "edge_survives_costs": true
+  },
+  "gem": {
+    "available": false,
+    "current_holding": null,
+    "allocation_usd": 50000.0,
+    "last_rebalance": null,
+    "readings": {},
+    "history": [],
+    "equity_curve": [
+      {
+        "date": "2026-05-19",
+        "equity": 100000.0
+      },
+      {
+        "date": "2026-06-18",
+        "equity": 100000.0
+      }
+    ],
+    "spy_curve": [
+      {
+        "date": "2026-05-19",
+        "equity": 100000.0
+      },
+      {
+        "date": "2026-06-18",
+        "equity": 100000.0
+      }
+    ],
+    "cagr": 0.0,
+    "spy_cagr": 0.0,
+    "total_return_pct": 0.0
+  },
+  "health": {
+    "EMA": {
+      "strategy": "EMA",
+      "status": "MONITORING",
+      "sufficient_data": false,
+      "trades_evaluated": 0,
+      "min_trades": 20,
+      "checks": [
+        {
+          "name": "win_rate_drift",
+          "status": "MONITORING",
+          "observed": 0.0,
+          "expected": 47.7,
+          "explanation": "Monitoring \u2014 insufficient data (0/20 trades)."
+        },
+        {
+          "name": "drawdown_breach",
+          "status": "MONITORING",
+          "observed": null,
+          "expected": 8.0,
+          "explanation": "Monitoring \u2014 insufficient data (0/20 trades)."
+        },
+        {
+          "name": "losing_streak",
+          "status": "MONITORING",
+          "observed": 0,
+          "expected": 7,
+          "explanation": "Monitoring \u2014 insufficient data (0/20 trades)."
+        },
+        {
+          "name": "no_signal_anomaly",
+          "status": "OK",
+          "observed": 0,
+          "expected": 60,
+          "explanation": "Last signal 0 days ago \u2014 within normal cadence."
+        },
+        {
+          "name": "execution_drag",
+          "status": "MONITORING",
+          "observed": null,
+          "expected": null,
+          "explanation": "Monitoring \u2014 no shadow trades yet."
+        }
+      ]
+    },
+    "GEM": {
+      "strategy": "GEM",
+      "status": "MONITORING",
+      "sufficient_data": false,
+      "trades_evaluated": 0,
+      "min_trades": 20,
+      "checks": [
+        {
+          "name": "gem_relative",
+          "status": "MONITORING",
+          "observed": null,
+          "expected": null,
+          "explanation": "Monitoring \u2014 no GEM rebalance history yet."
+        }
+      ]
+    }
   },
   "zero_trades": true,
   "reason": "trades_live.csv not found",
   "equity_curve": [
     {
-      "date": "2026-06-10",
+      "date": "2026-05-19",
       "equity": 100000.0
     },
     {
-      "date": "2026-07-10",
+      "date": "2026-06-18",
       "equity": 100000.0
     }
   ]

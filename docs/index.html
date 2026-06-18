@@ -829,7 +829,7 @@ Chart.defaults.borderColor = '#252a2d';
 Chart.defaults.font.family = "'DM Mono', monospace";
 Chart.defaults.font.size = 11;
 
-let equityChart, pnlChart, exitChart, filterBlocksChart, gemChart;
+let equityChart, pnlChart, exitChart, filterBlocksChart, gemChart, shadowChart;
 
 function fmt(n, prefix = '$') {
   if (n === null || n === undefined) return '—';
@@ -1178,23 +1178,111 @@ function buildShadowPanel(shadow) {
     return;
   }
 
-  const winRatePct = shadow.win_rate * 100;
+  // Dual-track: ideal (frictionless) vs realistic (after slippage + spread +
+  // commission). Older analytics.json without the split fall back to the
+  // headline keys for both tracks.
+  const ideal = shadow.ideal || shadow;
+  const realistic = shadow.realistic || shadow;
+  const drag = (shadow.execution_drag_pct != null) ? shadow.execution_drag_pct : 0;
+  const edgeBreaks = shadow.edge_survives_costs === false ||
+    (ideal.total_return_pct > 0 && realistic.total_return_pct < 0);
+
+  const winRatePct = (ideal.win_rate || 0) * 100;
+
+  // Headline: execution drag, flagged red if the edge dies after costs.
+  const headline = edgeBreaks
+    ? `<div style="color:var(--red);font-weight:600;font-size:13px;margin-bottom:10px">
+         ⚠️ Edge does not survive execution costs
+         <span style="color:var(--muted);font-weight:400">
+           (ideal ${ideal.total_return_pct >= 0 ? '+' : ''}${ideal.total_return_pct}% → realistic ${realistic.total_return_pct}%)
+         </span>
+       </div>`
+    : `<div style="font-weight:600;font-size:13px;margin-bottom:10px">
+         Execution drag: <span style="${drag > 50 ? 'color:var(--amber)' : ''}">${drag}%</span> of gross return
+       </div>`;
+
   el.innerHTML = `
+    ${headline}
     <div class="grid-3">
       <div class="stat-row" style="border-bottom:none">
         <span class="stat-label">Shadow trades</span>
         <span>${shadow.total_trades}</span>
       </div>
       <div class="stat-row" style="border-bottom:none">
-        <span class="stat-label">Shadow win rate</span>
+        <span class="stat-label">Win rate (ideal)</span>
         <span class="${colorClass(winRatePct - 50)}">${winRatePct.toFixed(1)}%</span>
       </div>
       <div class="stat-row" style="border-bottom:none">
-        <span class="stat-label">Shadow Sharpe</span>
-        <span class="${colorClass(shadow.sharpe)}">${shadow.sharpe.toFixed(3)}</span>
+        <span class="stat-label">Sharpe — ideal / real</span>
+        <span><span class="${colorClass(ideal.sharpe)}">${(ideal.sharpe||0).toFixed(2)}</span>
+          / <span class="${colorClass(realistic.sharpe)}">${(realistic.sharpe||0).toFixed(2)}</span></span>
+      </div>
+      <div class="stat-row" style="border-bottom:none">
+        <span class="stat-label">Return — ideal</span>
+        <span class="${colorClass(ideal.total_return_pct)}">${ideal.total_return_pct >= 0 ? '+' : ''}${ideal.total_return_pct}%</span>
+      </div>
+      <div class="stat-row" style="border-bottom:none">
+        <span class="stat-label">Return — realistic</span>
+        <span class="${colorClass(realistic.total_return_pct)}">${realistic.total_return_pct >= 0 ? '+' : ''}${realistic.total_return_pct}%</span>
+      </div>
+      <div class="stat-row" style="border-bottom:none">
+        <span class="stat-label">Max DD — real</span>
+        <span style="color:var(--red)">${(realistic.max_drawdown_pct||0).toFixed(1)}%</span>
       </div>
     </div>
+    <div style="margin-top:12px"><canvas id="shadow-chart" style="max-height:200px"></canvas></div>
   `;
+
+  buildShadowChart(ideal.equity_curve, realistic.equity_curve);
+}
+
+// Two shadow equity curves overlaid: ideal (dashed) vs realistic (solid).
+function buildShadowChart(idealCurve, realCurve) {
+  const canvas = document.getElementById('shadow-chart');
+  if (!canvas) return;
+  if (!(idealCurve && idealCurve.length > 1)) { canvas.style.display = 'none'; return; }
+
+  const dateSet = new Set();
+  idealCurve.forEach(p => p.date && dateSet.add(p.date));
+  (realCurve || []).forEach(p => p.date && dateSet.add(p.date));
+  const dates = Array.from(dateSet).sort();
+
+  const idealData = mapCurveToDates(idealCurve, dates);
+  const realData = (realCurve && realCurve.length > 1) ? mapCurveToDates(realCurve, dates) : null;
+
+  if (shadowChart) shadowChart.destroy();
+  const datasets = [{
+    label: 'Ideal (frictionless)',
+    data: idealData,
+    borderColor: '#9aa1a6',
+    borderDash: [5, 4],
+    borderWidth: 1.5,
+    pointRadius: 0,
+    tension: 0.1,
+  }];
+  if (realData) datasets.push({
+    label: 'Realistic (after costs)',
+    data: realData,
+    borderColor: '#00b8d9',
+    borderWidth: 2,
+    pointRadius: 0,
+    tension: 0.1,
+  });
+
+  shadowChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels: dates, datasets },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: true, labels: { color: '#9aa1a6', boxWidth: 16 } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: $${(+ctx.parsed.y).toLocaleString()}` } } },
+      scales: {
+        x: { ticks: { color: '#9aa1a6', maxTicksLimit: 6 }, grid: { display: false } },
+        y: { ticks: { color: '#9aa1a6', callback: v => '$' + (v/1000).toFixed(0) + 'k' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+      },
+    },
+  });
 }
 
 // ── PnL distribution chart ────────────────────────────────────────────────────

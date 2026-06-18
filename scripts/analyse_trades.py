@@ -162,7 +162,7 @@ def _rr_ratio(wins: pd.Series, losses: pd.Series) -> float:
 
 # ── shadow trading ────────────────────────────────────────────────────────────
 
-def _empty_shadow_stats() -> dict[str, Any]:
+def _empty_shadow_track() -> dict[str, Any]:
     return {
         "total_trades":     0,
         "win_rate":         0.0,
@@ -174,35 +174,31 @@ def _empty_shadow_stats() -> dict[str, Any]:
     }
 
 
-def _compute_shadow_stats(shadow_path: Path = SHADOW_TRADES_PATH) -> dict[str, Any]:
+def _empty_shadow_stats() -> dict[str, Any]:
+    track = _empty_shadow_track()
+    return {
+        # Top-level keys mirror the *ideal* track for backward compatibility
+        # with the existing dashboard shadow panel.
+        **track,
+        "ideal":              _empty_shadow_track(),
+        "realistic":          _empty_shadow_track(),
+        "execution_drag_pct": 0.0,
+        "edge_survives_costs": True,
+    }
+
+
+def _shadow_track_stats(df: pd.DataFrame, pnl_col: str) -> dict[str, Any]:
+    """Compute headline stats + equity curve for one fill track (ideal or realistic).
+
+    `df` must already be sorted by exit_date with `entry_date`/`exit_date` parsed
+    to UTC timestamps. `pnl_col` selects the per-trade PnL column to replay.
     """
-    Read shadow_trades.csv (closed-trade rows: id, ticker, side, entry_price,
-    exit_price, pnl_usd, pnl_pct, reason, entry_date, exit_date, bars_held)
-    and compute the same headline stats as the live `overall` block, scoped
-    to the shadow (simulated-fill) trade history.
-    """
-    if not shadow_path.exists():
-        return _empty_shadow_stats()
-
-    try:
-        df = pd.read_csv(shadow_path)
-        df.columns = df.columns.str.strip()
-    except Exception:
-        return _empty_shadow_stats()
-
-    if df.empty:
-        return _empty_shadow_stats()
-
-    df["pnl_usd"] = pd.to_numeric(df["pnl_usd"], errors="coerce").fillna(0.0)
-    df["entry_date"] = pd.to_datetime(df["entry_date"], utc=True, errors="coerce")
-    df["exit_date"]  = pd.to_datetime(df["exit_date"], utc=True, errors="coerce")
-    df = df.sort_values("exit_date").reset_index(drop=True)
-
+    pnl = pd.to_numeric(df[pnl_col], errors="coerce").fillna(0.0)
     total_trades = len(df)
-    wins   = df[df["pnl_usd"] > 0]["pnl_usd"]
-    losses = df[df["pnl_usd"] <= 0]["pnl_usd"]
+    wins   = pnl[pnl > 0]
+    losses = pnl[pnl <= 0]
     win_rate = round(len(wins) / total_trades, 3) if total_trades else 0.0
-    sharpe   = round(_sharpe(df["pnl_usd"]), 3)
+    sharpe   = round(_sharpe(pnl), 3)
     avg_rr   = _rr_ratio(wins, losses)
 
     first_entry = df["entry_date"].iloc[0]
@@ -210,8 +206,8 @@ def _compute_shadow_stats(shadow_path: Path = SHADOW_TRADES_PATH) -> dict[str, A
 
     equity = STARTING_EQUITY
     equity_curve: list[dict] = [{"date": start_date, "equity": round(equity, 2)}]
-    for _, row in df.iterrows():
-        equity += row["pnl_usd"]
+    for (_, row), trade_pnl in zip(df.iterrows(), pnl):
+        equity += float(trade_pnl)
         equity_curve.append({
             "date":     row["exit_date"].date().isoformat() if pd.notna(row["exit_date"]) else None,
             "equity":   round(equity, 2),
@@ -230,6 +226,68 @@ def _compute_shadow_stats(shadow_path: Path = SHADOW_TRADES_PATH) -> dict[str, A
         "avg_rr":           avg_rr,
         "max_drawdown_pct": max_dd,
         "equity_curve":     equity_curve,
+    }
+
+
+def _execution_drag_pct(ideal_return: float, realistic_return: float) -> float:
+    """Percentage of gross (ideal) return lost to execution friction.
+
+    Returns 0.0 when there is no positive gross return to erode. When the edge
+    fully inverts (ideal positive, realistic negative) the drag exceeds 100%.
+    """
+    if ideal_return <= 0:
+        return 0.0
+    return round((ideal_return - realistic_return) / ideal_return * 100, 1)
+
+
+def _compute_shadow_stats(shadow_path: Path = SHADOW_TRADES_PATH) -> dict[str, Any]:
+    """
+    Read shadow_trades.csv and compute shadow stats on BOTH tracks:
+
+      * ``ideal``     — frictionless fills at the exact open/exit (``pnl_usd``).
+      * ``realistic`` — after slippage + spread + commission (``pnl_usd_real``).
+
+    The gap between them is the execution drag — surfaced as
+    ``execution_drag_pct`` (% of gross return lost to friction). The top-level
+    headline keys mirror the ideal track for backward compatibility.
+    """
+    if not shadow_path.exists():
+        return _empty_shadow_stats()
+
+    try:
+        df = pd.read_csv(shadow_path)
+        df.columns = df.columns.str.strip()
+    except Exception:
+        return _empty_shadow_stats()
+
+    if df.empty or "pnl_usd" not in df.columns:
+        return _empty_shadow_stats()
+
+    df["entry_date"] = pd.to_datetime(df["entry_date"], utc=True, errors="coerce")
+    df["exit_date"]  = pd.to_datetime(df["exit_date"], utc=True, errors="coerce")
+    df = df.sort_values("exit_date").reset_index(drop=True)
+
+    # Realistic PnL column may be absent on legacy rows — fall back to ideal so
+    # those round trips simply show zero drag rather than vanishing.
+    if "pnl_usd_real" not in df.columns:
+        df["pnl_usd_real"] = df["pnl_usd"]
+    else:
+        df["pnl_usd_real"] = pd.to_numeric(df["pnl_usd_real"], errors="coerce").fillna(
+            pd.to_numeric(df["pnl_usd"], errors="coerce")
+        )
+
+    ideal     = _shadow_track_stats(df, "pnl_usd")
+    realistic = _shadow_track_stats(df, "pnl_usd_real")
+    drag = _execution_drag_pct(ideal["total_return_pct"], realistic["total_return_pct"])
+    edge_survives = not (ideal["total_return_pct"] > 0 and realistic["total_return_pct"] < 0)
+
+    return {
+        # Backward-compatible headline keys = ideal track.
+        **ideal,
+        "ideal":              ideal,
+        "realistic":          realistic,
+        "execution_drag_pct": drag,
+        "edge_survives_costs": edge_survives,
     }
 
 
