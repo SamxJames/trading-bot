@@ -590,6 +590,18 @@
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">
+        <div class="card-title">Strategy Health</div>
+        <div style="font-size:10px;color:var(--muted)">Live/shadow vs backtest baselines — degradation kill-switch (alert-only)</div>
+      </div>
+      <div class="card-body" id="health-panel">
+        <div class="zero-state" style="padding:12px 0">
+          <p>Health monitor initialising — check back after first run.</p>
+        </div>
+      </div>
+    </div>
+
     <div class="grid-3">
       <div class="card">
         <div class="card-header"><div class="card-title">Risk metrics</div></div>
@@ -1285,6 +1297,66 @@ function buildShadowChart(idealCurve, realCurve) {
   });
 }
 
+// ── Strategy health panel ─────────────────────────────────────────────────────
+function buildHealthPanel(health) {
+  const el = document.getElementById('health-panel');
+  if (!health || (!health.EMA && !health.GEM)) {
+    el.innerHTML = '<div class="zero-state" style="padding:12px 0">' +
+      '<p>Health monitor initialising — check back after first run.</p></div>';
+    return;
+  }
+
+  // status -> {dot class, label colour, text}
+  const STATUS = {
+    OK:         { dot: '',      color: 'var(--accent)', label: 'OK' },
+    INFO:       { dot: 'amber', color: 'var(--amber)',  label: 'INFO' },
+    WARNING:    { dot: 'amber', color: 'var(--amber)',  label: 'WARNING' },
+    CRITICAL:   { dot: 'red',   color: 'var(--red)',    label: 'CRITICAL' },
+    MONITORING: { dot: 'amber', color: 'var(--muted)',  label: 'MONITORING' },
+  };
+
+  const cards = ['EMA', 'GEM'].filter(k => health[k]).map(key => {
+    const h = health[key];
+    const s = STATUS[h.status] || STATUS.MONITORING;
+    const insufficient = h.status === 'MONITORING' || !h.sufficient_data;
+
+    let body;
+    if (insufficient && h.status === 'MONITORING') {
+      body = `<div style="color:var(--muted);font-size:12px;margin-top:6px">
+                Monitoring — insufficient data (${h.trades_evaluated}/${h.min_trades} trades).
+              </div>`;
+    } else {
+      const rows = (h.checks || []).map(c => {
+        const cs = STATUS[c.status] || STATUS.MONITORING;
+        const obs = (c.observed === null || c.observed === undefined) ? '—' : c.observed;
+        const exp = (c.expected === null || c.expected === undefined) ? '—' : c.expected;
+        return `<div class="stat-row" style="border-bottom:none;padding:2px 0">
+                  <span class="stat-label">
+                    <span class="dot ${cs.dot}" style="display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px"></span>
+                    ${c.name.replace(/_/g,' ')}
+                  </span>
+                  <span style="color:${cs.color};font-size:11px">obs ${obs} / exp ${exp}</span>
+                </div>`;
+      }).join('');
+      body = `<div style="margin-top:6px">${rows}</div>`;
+    }
+
+    return `
+      <div class="card" style="border-color:${s.color}">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+          <div class="card-title">${key}</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="dot ${s.dot}"></span>
+            <span style="color:${s.color};font-weight:600;font-size:12px">${s.label}</span>
+          </div>
+        </div>
+        <div class="card-body">${body}</div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="grid-2" style="gap:12px">${cards}</div>`;
+}
+
 // ── PnL distribution chart ────────────────────────────────────────────────────
 function buildPnlChart(curve, zeroTrades) {
   if (!curve || curve.length <= 1 || zeroTrades) {
@@ -1427,6 +1499,7 @@ function showZeroState(data) {
   buildEquityChart(data.equity_curve, null, true, data.shadow && data.shadow.equity_curve);
   buildPnlChart(data.equity_curve, true);
   buildShadowPanel(data.shadow);
+  buildHealthPanel(data.health);
 
   document.getElementById('exit-zero').style.display = 'block';
   document.getElementById('exit-chart').style.display = 'none';
@@ -1468,6 +1541,7 @@ async function loadData() {
       buildTradeQuality(o);
       buildTickerTable(data.per_ticker);
       buildShadowPanel(data.shadow);
+      buildHealthPanel(data.health);
     }
 
     // Always populate bot status, GEM panel, filter chart, last run + signal filters

@@ -191,6 +191,17 @@ class Settings(BaseSettings):
     commission_per_trade: float = 0.0  # flat $/trade; Alpaca is commission-free for stocks/ETFs
 
     # -------------------------------------------------------------------------
+    # Strategy health monitoring (deployment discipline layer)
+    # -------------------------------------------------------------------------
+    health_monitoring: bool = True            # compare live/shadow vs backtest baselines, alert on degradation
+    # ALERT-ONLY by default. If True a CRITICAL status would set the strategy
+    # enabled=False. Deliberately False: with zero real trades the auto-pause
+    # path is untested and could misfire — only enable manually once the monitor
+    # has proven reliable on real data.
+    health_auto_pause: bool = False
+    health_min_trades_for_check: int = 20     # don't run statistical checks until enough data
+
+    # -------------------------------------------------------------------------
     # Dual Momentum (GEM) — separate monthly portfolio-allocation engine.
     # Runs via `python -m bot rebalance` on its own capital slice; the EMA bot
     # is unaffected. momentum IS the strategy here — the 9-filter stack does

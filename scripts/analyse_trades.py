@@ -603,6 +603,41 @@ def _compute_gem(log_path: Path = GEM_LOG_PATH) -> dict[str, Any]:
 
 # ── main analytics ────────────────────────────────────────────────────────────
 
+def _compute_health(shadow_block: dict, gem_block: dict) -> dict[str, Any]:
+    """Strategy health summary for the dashboard health panel.
+
+    Reuses the already-computed shadow/gem analytics so it adds no extra I/O,
+    and falls back to {} if the monitor is unavailable for any reason.
+    """
+    try:
+        from types import SimpleNamespace
+
+        from bot.health_monitor import (
+            StrategyHealthMonitor,
+            days_since_last_ema_signal,
+            load_ema_pnls,
+        )
+    except Exception:
+        return {}
+
+    try:
+        # Defaults mirror config.yaml; analyse_trades runs without credentials,
+        # so we do not load full Settings here.
+        settings = SimpleNamespace(
+            health_monitoring=True, health_auto_pause=False,
+            health_min_trades_for_check=20,
+        )
+        monitor = StrategyHealthMonitor(settings)
+        ema = monitor.evaluate_ema(
+            load_ema_pnls(), shadow_stats=shadow_block,
+            days_since_last_signal=days_since_last_ema_signal(),
+        )
+        gem = monitor.evaluate_gem(gem_block)
+        return {"EMA": ema.to_dict(), "GEM": gem.to_dict()}
+    except Exception:
+        return {}
+
+
 def compute(trades_path: Path = TRADES_PATH,
             log_path: Path = LOG_PATH) -> dict[str, Any]:
     generated_at = datetime.now(timezone.utc).isoformat()
@@ -635,6 +670,7 @@ def compute(trades_path: Path = TRADES_PATH,
         "shadow":           _compute_shadow_stats(),
         "gem":              _compute_gem(),
     }
+    base["health"] = _compute_health(base["shadow"], base["gem"])
 
     if not trades_path.exists():
         return {

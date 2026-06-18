@@ -54,6 +54,7 @@ from bot.data.historical import fetch_bars
 from bot.earnings import EarningsFilter
 from bot.execution.broker import BrokerClient
 from bot.filters.regime import RegimeFilter
+from bot.health_monitor import CRITICAL
 from bot.logging.logger import get_logger
 from bot.risk.manager import RiskManager
 from bot.risk.sizing import atr_position_size
@@ -195,7 +196,47 @@ async def _run(dry_run: bool) -> dict[str, int]:
         shadow = ShadowTrader(settings, regime, earnings, corr_guard)
         await shadow.run(today)
 
+    # ── Strategy health monitor: compare live/shadow vs backtest baselines and
+    #    alert on degradation. Alert-only — never disables a strategy unless
+    #    health_auto_pause is explicitly enabled. Fails open: any error here is
+    #    logged and swallowed so it can never halt the trading job. ──────────
+    if getattr(settings, "health_monitoring", False):
+        await _run_health_monitor(settings, today)
+
     return signal_funnel
+
+
+async def _run_health_monitor(settings: object, today: date) -> None:
+    """Evaluate strategy health and post a Discord alert per degraded strategy.
+
+    Never raises — health monitoring must not be able to break the daily job.
+    """
+    try:
+        from bot.health_monitor import StrategyHealthMonitor, format_alert
+
+        monitor = StrategyHealthMonitor(settings)
+        results = monitor.run_from_files(today=today)
+
+        for name, health in results.items():
+            log.info(
+                "health_check",
+                strategy=name,
+                status=health.status,
+                trades_evaluated=health.trades_evaluated,
+            )
+            alert = format_alert(health)
+            if alert is None:
+                continue
+            title, message, colour = alert
+            await notify.send(title=title, message=message, colour=colour)
+
+            # Auto-pause is OFF by default and intentionally untested on real
+            # data. When enabled, a CRITICAL status would disable the strategy;
+            # for now we only record that it *would* have fired.
+            if getattr(settings, "health_auto_pause", False) and health.status == CRITICAL:
+                log.warning("health_auto_pause_triggered", strategy=name, status=health.status)
+    except Exception as exc:
+        log.warning("health_monitor_failed", error=str(exc))
 
 
 def _safe_num(value: object) -> float | int | None:
