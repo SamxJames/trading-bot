@@ -1,32 +1,26 @@
 {
-  "generated_at": "2026-06-19T21:49:32.148786+00:00",
+  "generated_at": "2026-06-22T13:40:16.188244+00:00",
   "last_run": {
-    "timestamp": "2026-06-19T21:49:31.633419+00:00",
-    "status": "ok",
-    "run_id": "27849951001",
-    "run_number": "20",
+    "timestamp": null,
+    "status": null,
+    "run_id": "27956981255",
+    "run_number": "5",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
     "blocked_trend_filter": 0,
     "blocked_rsi_overbought": 0
   },
-  "last_run_status": "ok",
+  "last_run_status": null,
   "signal_log": {
-    "available": true,
-    "last_run": "2026-06-19T21:49:31.633419+00:00",
-    "last_run_status": "ok",
+    "available": false,
+    "last_run": null,
+    "last_run_status": null,
     "signals_fired": 0,
     "stop_losses_triggered": 0,
     "blocked_reasons": {},
     "total_blocked": 0,
-    "today_evaluated": [
-      "SPY",
-      "QQQ",
-      "GLD",
-      "AAPL",
-      "NVDA"
-    ],
+    "today_evaluated": [],
     "today_signals": [],
     "filter_blocks_30d": {
       "trend_sma": 0,
@@ -40,13 +34,7 @@
     }
   },
   "open_positions": [],
-  "today_evaluated": [
-    "SPY",
-    "QQQ",
-    "GLD",
-    "AAPL",
-    "NVDA"
-  ],
+  "today_evaluated": [],
   "today_signals": [],
   "filter_blocks_30d": {
     "trend_sma": 0,
@@ -62,11 +50,11 @@
   "reason": "trades_live.csv not found",
   "equity_curve": [
     {
-      "date": "2026-05-20",
+      "date": "2026-05-23",
       "equity": 100000.0
     },
     {
-      "date": "2026-06-19",
+      "date": "2026-06-22",
       "equity": 100000.0
     }
   ]
