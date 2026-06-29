@@ -1,26 +1,32 @@
 {
-  "generated_at": "2026-06-29T12:39:45.628446+00:00",
+  "generated_at": "2026-06-29T21:59:27.924910+00:00",
   "last_run": {
-    "timestamp": null,
-    "status": null,
-    "run_id": "28372618721",
-    "run_number": "6",
+    "timestamp": "2026-06-29T21:59:27.402525+00:00",
+    "status": "ok",
+    "run_id": "28405420380",
+    "run_number": "26",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
     "blocked_trend_filter": 0,
     "blocked_rsi_overbought": 0
   },
-  "last_run_status": null,
+  "last_run_status": "ok",
   "signal_log": {
-    "available": false,
-    "last_run": null,
-    "last_run_status": null,
+    "available": true,
+    "last_run": "2026-06-29T21:59:27.402525+00:00",
+    "last_run_status": "ok",
     "signals_fired": 0,
     "stop_losses_triggered": 0,
     "blocked_reasons": {},
     "total_blocked": 0,
-    "today_evaluated": [],
+    "today_evaluated": [
+      "SPY",
+      "QQQ",
+      "GLD",
+      "AAPL",
+      "NVDA"
+    ],
     "today_signals": [],
     "filter_blocks_30d": {
       "trend_sma": 0,
@@ -34,7 +40,13 @@
     }
   },
   "open_positions": [],
-  "today_evaluated": [],
+  "today_evaluated": [
+    "SPY",
+    "QQQ",
+    "GLD",
+    "AAPL",
+    "NVDA"
+  ],
   "today_signals": [],
   "filter_blocks_30d": {
     "trend_sma": 0,
