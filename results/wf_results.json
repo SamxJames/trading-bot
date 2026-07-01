@@ -1,0 +1,382 @@
+{
+  "generated_at": "2026-07-01",
+  "windows": [
+    {
+      "train_start": "2004-11-18",
+      "train_end": "2009-11-18",
+      "validate_end": "2010-11-18",
+      "best_params": {
+        "fast_period": 15,
+        "slow_period": 40,
+        "trend_sma_period": 200,
+        "rsi_overbought": 70,
+        "stop_loss_pct": 2.0
+      },
+      "train_metrics": {
+        "win_rate": 40.0,
+        "sharpe": 2.518671252776739,
+        "trades": 50
+      },
+      "validate_metrics": {
+        "win_rate": 28.57142857142857,
+        "sharpe": 0.1456003334137098,
+        "trades": 14
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2005-11-18",
+      "train_end": "2010-11-18",
+      "validate_end": "2011-11-18",
+      "best_params": {
+        "fast_period": 10,
+        "slow_period": 40,
+        "trend_sma_period": 200,
+        "rsi_overbought": 75,
+        "stop_loss_pct": 2.5
+      },
+      "train_metrics": {
+        "win_rate": 37.28813559322034,
+        "sharpe": 2.3762034587644405,
+        "trades": 59
+      },
+      "validate_metrics": {
+        "win_rate": 37.5,
+        "sharpe": -0.2022863170340244,
+        "trades": 16
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2006-11-18",
+      "train_end": "2011-11-18",
+      "validate_end": "2012-11-18",
+      "best_params": {
+        "fast_period": 15,
+        "slow_period": 50,
+        "trend_sma_period": 100,
+        "rsi_overbought": 70,
+        "stop_loss_pct": 2.5
+      },
+      "train_metrics": {
+        "win_rate": 38.18181818181819,
+        "sharpe": 2.5018964173744433,
+        "trades": 55
+      },
+      "validate_metrics": {
+        "win_rate": 16.666666666666664,
+        "sharpe": -3.5328054514287732,
+        "trades": 12
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2007-11-18",
+      "train_end": "2012-11-18",
+      "validate_end": "2013-11-18",
+      "best_params": {
+        "fast_period": 15,
+        "slow_period": 40,
+        "trend_sma_period": 100,
+        "rsi_overbought": 70,
+        "stop_loss_pct": 2.5
+      },
+      "train_metrics": {
+        "win_rate": 43.39622641509434,
+        "sharpe": 2.514250076120399,
+        "trades": 53
+      },
+      "validate_metrics": {
+        "win_rate": 50.0,
+        "sharpe": 0.48296338242748044,
+        "trades": 6
+      },
+      "promoted": true
+    },
+    {
+      "train_start": "2008-11-18",
+      "train_end": "2013-11-18",
+      "validate_end": "2014-11-18",
+      "best_params": {
+        "fast_period": 15,
+        "slow_period": 40,
+        "trend_sma_period": 100,
+        "rsi_overbought": 70,
+        "stop_loss_pct": 2.5
+      },
+      "train_metrics": {
+        "win_rate": 47.45762711864407,
+        "sharpe": 2.6976991677192195,
+        "trades": 59
+      },
+      "validate_metrics": {
+        "win_rate": 37.5,
+        "sharpe": 0.36559244021601967,
+        "trades": 16
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2009-11-18",
+      "train_end": "2014-11-18",
+      "validate_end": "2015-11-18",
+      "best_params": {
+        "fast_period": 15,
+        "slow_period": 40,
+        "trend_sma_period": 100,
+        "rsi_overbought": 75,
+        "stop_loss_pct": 1.5
+      },
+      "train_metrics": {
+        "win_rate": 40.32258064516129,
+        "sharpe": 3.2827003028416026,
+        "trades": 62
+      },
+      "validate_metrics": {
+        "win_rate": 21.73913043478261,
+        "sharpe": -1.497222467938361,
+        "trades": 23
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2010-11-18",
+      "train_end": "2015-11-18",
+      "validate_end": "2016-11-18",
+      "best_params": {
+        "fast_period": 15,
+        "slow_period": 40,
+        "trend_sma_period": 100,
+        "rsi_overbought": 75,
+        "stop_loss_pct": 1.5
+      },
+      "train_metrics": {
+        "win_rate": 38.23529411764706,
+        "sharpe": 2.619262069815992,
+        "trades": 68
+      },
+      "validate_metrics": {
+        "win_rate": 25.0,
+        "sharpe": -1.5064644016078617,
+        "trades": 16
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2011-11-18",
+      "train_end": "2016-11-18",
+      "validate_end": "2017-11-18",
+      "best_params": {
+        "fast_period": 20,
+        "slow_period": 40,
+        "trend_sma_period": 100,
+        "rsi_overbought": 75,
+        "stop_loss_pct": 3.0
+      },
+      "train_metrics": {
+        "win_rate": 44.44444444444444,
+        "sharpe": 2.0874477777719154,
+        "trades": 54
+      },
+      "validate_metrics": {
+        "win_rate": 42.857142857142854,
+        "sharpe": -1.505452581337099,
+        "trades": 7
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2012-11-18",
+      "train_end": "2017-11-18",
+      "validate_end": "2018-11-18",
+      "best_params": {
+        "fast_period": 25,
+        "slow_period": 50,
+        "trend_sma_period": 150,
+        "rsi_overbought": 75,
+        "stop_loss_pct": 2.0
+      },
+      "train_metrics": {
+        "win_rate": 41.935483870967744,
+        "sharpe": 1.669666666398452,
+        "trades": 31
+      },
+      "validate_metrics": {
+        "win_rate": 50.0,
+        "sharpe": 0.7194513554535665,
+        "trades": 6
+      },
+      "promoted": true
+    },
+    {
+      "train_start": "2013-11-18",
+      "train_end": "2018-11-18",
+      "validate_end": "2019-11-18",
+      "best_params": {
+        "fast_period": 25,
+        "slow_period": 50,
+        "trend_sma_period": 150,
+        "rsi_overbought": 80,
+        "stop_loss_pct": 1.5
+      },
+      "train_metrics": {
+        "win_rate": 43.47826086956522,
+        "sharpe": 2.029329828325287,
+        "trades": 46
+      },
+      "validate_metrics": {
+        "win_rate": 25.0,
+        "sharpe": -1.1658633373666352,
+        "trades": 16
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2014-11-18",
+      "train_end": "2019-11-18",
+      "validate_end": "2020-11-18",
+      "best_params": {
+        "fast_period": 25,
+        "slow_period": 60,
+        "trend_sma_period": 100,
+        "rsi_overbought": 75,
+        "stop_loss_pct": 2.0
+      },
+      "train_metrics": {
+        "win_rate": 29.78723404255319,
+        "sharpe": 1.6874683401157355,
+        "trades": 47
+      },
+      "validate_metrics": {
+        "win_rate": 28.57142857142857,
+        "sharpe": -0.04437834139218577,
+        "trades": 7
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2015-11-18",
+      "train_end": "2020-11-18",
+      "validate_end": "2021-11-18",
+      "best_params": {
+        "fast_period": 25,
+        "slow_period": 60,
+        "trend_sma_period": 200,
+        "rsi_overbought": 75,
+        "stop_loss_pct": 3.0
+      },
+      "train_metrics": {
+        "win_rate": 51.724137931034484,
+        "sharpe": 2.431455385954665,
+        "trades": 29
+      },
+      "validate_metrics": {
+        "win_rate": 14.285714285714285,
+        "sharpe": -1.3577330996041121,
+        "trades": 7
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2016-11-18",
+      "train_end": "2021-11-18",
+      "validate_end": "2022-11-18",
+      "best_params": {
+        "fast_period": 20,
+        "slow_period": 60,
+        "trend_sma_period": 200,
+        "rsi_overbought": 80,
+        "stop_loss_pct": 3.0
+      },
+      "train_metrics": {
+        "win_rate": 47.368421052631575,
+        "sharpe": 2.256521635660015,
+        "trades": 38
+      },
+      "validate_metrics": {
+        "win_rate": 9.090909090909092,
+        "sharpe": -7.1297357682993905,
+        "trades": 11
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2017-11-18",
+      "train_end": "2022-11-18",
+      "validate_end": "2023-11-18",
+      "best_params": {
+        "fast_period": 25,
+        "slow_period": 60,
+        "trend_sma_period": 100,
+        "rsi_overbought": 75,
+        "stop_loss_pct": 3.0
+      },
+      "train_metrics": {
+        "win_rate": 47.22222222222222,
+        "sharpe": 2.157490077659568,
+        "trades": 36
+      },
+      "validate_metrics": {
+        "win_rate": 23.076923076923077,
+        "sharpe": -0.045395733382644056,
+        "trades": 13
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2018-11-18",
+      "train_end": "2023-11-18",
+      "validate_end": "2024-11-18",
+      "best_params": {
+        "fast_period": 25,
+        "slow_period": 60,
+        "trend_sma_period": 100,
+        "rsi_overbought": 75,
+        "stop_loss_pct": 3.0
+      },
+      "train_metrics": {
+        "win_rate": 43.18181818181818,
+        "sharpe": 2.190331108761667,
+        "trades": 44
+      },
+      "validate_metrics": {
+        "win_rate": 33.33333333333333,
+        "sharpe": 0.26471510955440736,
+        "trades": 3
+      },
+      "promoted": false
+    },
+    {
+      "train_start": "2019-11-18",
+      "train_end": "2024-11-18",
+      "validate_end": "2025-11-18",
+      "best_params": {
+        "fast_period": 15,
+        "slow_period": 40,
+        "trend_sma_period": 150,
+        "rsi_overbought": 70,
+        "stop_loss_pct": 1.5
+      },
+      "train_metrics": {
+        "win_rate": 38.095238095238095,
+        "sharpe": 2.424215897572157,
+        "trades": 63
+      },
+      "validate_metrics": {
+        "win_rate": 0.0,
+        "sharpe": -25.213346432282343,
+        "trades": 3
+      },
+      "promoted": false
+    }
+  ],
+  "consensus_params": {
+    "fast_period": 25,
+    "rsi_overbought": 75,
+    "slow_period": 50,
+    "stop_loss_pct": 2.0,
+    "trend_sma_period": 150
+  },
+  "promoted_count": 2,
+  "total_windows": 16
+}

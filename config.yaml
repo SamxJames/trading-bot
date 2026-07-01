@@ -1,75 +1,35 @@
-# Trading bot configuration
-# Credentials (APCA_API_KEY_ID etc.) live in .env — never put them here.
-
-# Ticker universe — validated against 20-year backtest (2005-2025, yfinance)
 tickers:
-  - SPY   # S&P 500 — best win rate (55.6%), reliable trend-follower, Sharpe 0.408
-  - QQQ   # Nasdaq 100 — highest Sharpe (0.633), 41 trades, 7.38% return
-  - GLD   # Gold ETF — non-correlated, 42.9% win rate, strong diversifier
-  - AAPL  # Apple — best balanced performer, 48.6% win rate, 16.38% return, 7.22x R:R
-  - NVDA  # Nvidia — highest return (27.19%), extreme R:R (36.63x), low win rate (16.7%)
-          # Kept for asymmetric upside — catches mega-trends like 2023 AI rally
-
-# Removed:
-# TLT  — 0% win rate, long-only EMA has no edge in a bond bear market
-# IWM  — 25% win rate, 0.22x R:R, negative Sharpe across all available data
-# MSFT — 23.5% win rate, Sharpe 0.141 (worst of all tickers), redundant vs QQQ
-
-# Strategy
+- SPY
+- QQQ
+- GLD
+- AAPL
+- NVDA
 strategy: ema_cross_filtered
 timeframe: 1Day
-
-# EMA crossover parameters
-fast_period: 20
+fast_period: 25
 slow_period: 50
-
-# Entry filters
-trend_sma_period: 150  # FILTER 1: only BUY if close > SMA(150)
+trend_sma_period: 150
 rsi_period: 14
 rsi_oversold: 30
-rsi_overbought: 75     # FILTER 2: only BUY if RSI < 75
-weekly_ema_filter: true # FILTER 9: only BUY if weekly EMA(20) > weekly EMA(50)
-
-# Exit management (#1 trailing stop, #2 take-profit)
-stop_loss_pct: 2.5        # initial hard floor below entry price
-trailing_stop_pct: 4.0    # ratchets up as price rises (tuned via 2005-2025 sweep, scripts/tune_filters.py)
-take_profit_rr: 3.0       # exit at 3× initial risk — set 0 to disable
-
-# Volume confirmation (#4)
-volume_lookback: 20       # FILTER 4: bars for rolling average volume
-volume_multiplier: 0.75   # entry bar volume must be >= N× 20-bar average (tuned via 2005-2025 sweep, scripts/tune_filters.py)
-
-# Regime filters (#3 VIX, #5 SPY macro)
-vix_threshold: 25.0       # FILTER 5: skip all BUYs if VIX > 25
-vix_tight_threshold: 20.0 # tighten stops when VIX > 20 (but < 25)
-vix_tight_stop_pct: 1.5   # stop % used when VIX is elevated
-spy_macro_filter: true    # FILTER 6: skip non-SPY BUYs when SPY < SMA(200)
-spy_sma_period: 200       # SPY macro SMA period
-
-# Earnings blackout (#7)
-earnings_blackout_days: 1  # FILTER 7: skip BUYs within N days of earnings (either side)
-
-# Correlation guard (#8)
-max_correlation: 0.8       # FILTER 8: skip BUY if corr with a held ticker >= this
-dynamic_correlation: true  # compute correlation matrix from recent returns
-correlation_lookback: 60   # bars of daily returns used for correlation
-
-# ATR position sizing (#6)
-atr_sizing: true          # scale notional by ticker volatility
-atr_period: 14            # ATR lookback in bars
-atr_target_pct: 2.0       # reference ATR % — at this level base notional is used
-
-# Risk manager
-max_positions: 5              # one per ticker
-max_notional_per_trade: 500   # USD cap per trade (also base for ATR scaling)
-drawdown_halt_pct: 5          # halt if equity drops 5% from session start
-
-# Notifications: set DISCORD_WEBHOOK_URL in .env or GitHub Actions secrets
-
-# Earnings blackout filter
-earnings_blackout_days: 3   # skip BUY entries within N trading days of earnings
-
-# Correlation guard
-max_correlation: 0.75       # block entry if correlated > this with open position
-dynamic_correlation: false  # true = recompute live via yfinance (slower)
-correlation_lookback: 60    # bars for dynamic correlation (if enabled)
+rsi_overbought: 75
+weekly_ema_filter: true
+stop_loss_pct: 2.0
+trailing_stop_pct: 4.0
+take_profit_rr: 3.0
+volume_lookback: 20
+volume_multiplier: 0.75
+vix_threshold: 25.0
+vix_tight_threshold: 20.0
+vix_tight_stop_pct: 1.5
+spy_macro_filter: true
+spy_sma_period: 200
+earnings_blackout_days: 3
+max_correlation: 0.75
+dynamic_correlation: false
+correlation_lookback: 60
+atr_sizing: true
+atr_period: 14
+atr_target_pct: 2.0
+max_positions: 5
+max_notional_per_trade: 500
+drawdown_halt_pct: 5
