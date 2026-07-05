@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-04",
+  "generated_at": "2026-07-05",
   "windows": [
     {
       "train_start": "2004-11-18",
@@ -14,12 +14,12 @@
       },
       "train_metrics": {
         "win_rate": 40.0,
-        "sharpe": 2.5186711273010975,
+        "sharpe": 2.5186719646457614,
         "trades": 50
       },
       "validate_metrics": {
         "win_rate": 28.57142857142857,
-        "sharpe": 0.1455943234937979,
+        "sharpe": 0.14558723453307598,
         "trades": 14
       },
       "promoted": false
@@ -37,12 +37,12 @@
       },
       "train_metrics": {
         "win_rate": 37.28813559322034,
-        "sharpe": 2.376201131941489,
+        "sharpe": 2.376202303295299,
         "trades": 59
       },
       "validate_metrics": {
         "win_rate": 37.5,
-        "sharpe": -0.20228558912271008,
+        "sharpe": -0.20229302611321337,
         "trades": 16
       },
       "promoted": false
@@ -60,12 +60,12 @@
       },
       "train_metrics": {
         "win_rate": 38.18181818181819,
-        "sharpe": 2.5018961069471413,
+        "sharpe": 2.501896125118912,
         "trades": 55
       },
       "validate_metrics": {
         "win_rate": 16.666666666666664,
-        "sharpe": -3.5328204064562505,
+        "sharpe": -3.532795069305042,
         "trades": 12
       },
       "promoted": false
@@ -83,12 +83,12 @@
       },
       "train_metrics": {
         "win_rate": 43.39622641509434,
-        "sharpe": 2.514248341821803,
+        "sharpe": 2.5142486403112865,
         "trades": 53
       },
       "validate_metrics": {
         "win_rate": 50.0,
-        "sharpe": 0.482960703242467,
+        "sharpe": 0.48296638335780845,
         "trades": 6
       },
       "promoted": true
@@ -106,12 +106,12 @@
       },
       "train_metrics": {
         "win_rate": 47.45762711864407,
-        "sharpe": 2.6976983904563157,
+        "sharpe": 2.6976983512404327,
         "trades": 59
       },
       "validate_metrics": {
         "win_rate": 37.5,
-        "sharpe": 0.3655987784726482,
+        "sharpe": 0.36559557732831527,
         "trades": 16
       },
       "promoted": false
@@ -129,12 +129,12 @@
       },
       "train_metrics": {
         "win_rate": 40.32258064516129,
-        "sharpe": 3.2826989204325416,
+        "sharpe": 3.282693662565627,
         "trades": 62
       },
       "validate_metrics": {
         "win_rate": 21.73913043478261,
-        "sharpe": -1.4972223741185575,
+        "sharpe": -1.4972360063953523,
         "trades": 23
       },
       "promoted": false
@@ -152,12 +152,12 @@
       },
       "train_metrics": {
         "win_rate": 38.23529411764706,
-        "sharpe": 2.619262444230089,
+        "sharpe": 2.6192592524292824,
         "trades": 68
       },
       "validate_metrics": {
         "win_rate": 25.0,
-        "sharpe": -1.5064897983668422,
+        "sharpe": -1.5064792854536835,
         "trades": 16
       },
       "promoted": false
@@ -175,12 +175,12 @@
       },
       "train_metrics": {
         "win_rate": 44.44444444444444,
-        "sharpe": 2.0874511354525747,
+        "sharpe": 2.0874486425785355,
         "trades": 54
       },
       "validate_metrics": {
         "win_rate": 42.857142857142854,
-        "sharpe": -1.505451754918835,
+        "sharpe": -1.5054488433732116,
         "trades": 7
       },
       "promoted": false
@@ -198,12 +198,12 @@
       },
       "train_metrics": {
         "win_rate": 41.935483870967744,
-        "sharpe": 1.669667538972378,
+        "sharpe": 1.6696676814917153,
         "trades": 31
       },
       "validate_metrics": {
         "win_rate": 50.0,
-        "sharpe": 0.7194511205205877,
+        "sharpe": 0.7194571665906151,
         "trades": 6
       },
       "promoted": true
@@ -221,12 +221,12 @@
       },
       "train_metrics": {
         "win_rate": 43.47826086956522,
-        "sharpe": 2.029329772730798,
+        "sharpe": 2.0293300864290993,
         "trades": 46
       },
       "validate_metrics": {
         "win_rate": 25.0,
-        "sharpe": -1.1658622734999269,
+        "sharpe": -1.1658592062870299,
         "trades": 16
       },
       "promoted": false
@@ -244,12 +244,12 @@
       },
       "train_metrics": {
         "win_rate": 29.78723404255319,
-        "sharpe": 1.6874671625362336,
+        "sharpe": 1.6874681540077268,
         "trades": 47
       },
       "validate_metrics": {
         "win_rate": 28.57142857142857,
-        "sharpe": -0.04437982161610468,
+        "sharpe": -0.0443785469646054,
         "trades": 7
       },
       "promoted": false
@@ -267,12 +267,12 @@
       },
       "train_metrics": {
         "win_rate": 51.724137931034484,
-        "sharpe": 2.4314541223695483,
+        "sharpe": 2.4314538342414065,
         "trades": 29
       },
       "validate_metrics": {
         "win_rate": 14.285714285714285,
-        "sharpe": -1.3577325906930742,
+        "sharpe": -1.3577289303388251,
         "trades": 7
       },
       "promoted": false
@@ -290,12 +290,12 @@
       },
       "train_metrics": {
         "win_rate": 47.368421052631575,
-        "sharpe": 2.2565221337721537,
+        "sharpe": 2.2565209524094616,
         "trades": 38
       },
       "validate_metrics": {
         "win_rate": 9.090909090909092,
-        "sharpe": -7.1297266975943625,
+        "sharpe": -7.129732743595545,
         "trades": 11
       },
       "promoted": false
@@ -313,12 +313,12 @@
       },
       "train_metrics": {
         "win_rate": 47.22222222222222,
-        "sharpe": 2.1574878510054774,
+        "sharpe": 2.1574893131348953,
         "trades": 36
       },
       "validate_metrics": {
         "win_rate": 23.076923076923077,
-        "sharpe": -0.045393515948457135,
+        "sharpe": -0.045393719787444484,
         "trades": 13
       },
       "promoted": false
@@ -336,12 +336,12 @@
       },
       "train_metrics": {
         "win_rate": 43.18181818181818,
-        "sharpe": 2.1903300967814996,
+        "sharpe": 2.190330638450249,
         "trades": 44
       },
       "validate_metrics": {
         "win_rate": 33.33333333333333,
-        "sharpe": 0.26471749207428324,
+        "sharpe": 0.2647156116105888,
         "trades": 3
       },
       "promoted": false
@@ -359,12 +359,12 @@
       },
       "train_metrics": {
         "win_rate": 38.095238095238095,
-        "sharpe": 2.4242161715822728,
+        "sharpe": 2.4242163575640228,
         "trades": 63
       },
       "validate_metrics": {
         "win_rate": 0.0,
-        "sharpe": -25.21297053248957,
+        "sharpe": -25.210795236500676,
         "trades": 3
       },
       "promoted": false
