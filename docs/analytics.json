@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-07-06T22:02:27.911900+00:00",
+  "generated_at": "2026-07-07T22:00:23.183342+00:00",
   "last_run": {
-    "timestamp": "2026-07-06T22:02:27.426934+00:00",
+    "timestamp": "2026-07-07T22:00:22.714069+00:00",
     "status": "ok",
-    "run_id": "28826279097",
-    "run_number": "31",
+    "run_id": "28901609834",
+    "run_number": "32",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
@@ -14,7 +14,7 @@
   "last_run_status": "ok",
   "signal_log": {
     "available": true,
-    "last_run": "2026-07-06T22:02:27.426934+00:00",
+    "last_run": "2026-07-07T22:00:22.714069+00:00",
     "last_run_status": "ok",
     "signals_fired": 0,
     "stop_losses_triggered": 0,
@@ -62,11 +62,11 @@
   "reason": "trades_live.csv not found",
   "equity_curve": [
     {
-      "date": "2026-06-06",
+      "date": "2026-06-07",
       "equity": 100000.0
     },
     {
-      "date": "2026-07-06",
+      "date": "2026-07-07",
       "equity": 100000.0
     }
   ]
