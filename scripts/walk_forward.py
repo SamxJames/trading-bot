@@ -29,7 +29,7 @@ import json
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field, asdict
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +59,35 @@ PARAM_GRID = {
 # Promotion thresholds — params only promoted if validation passes both
 MIN_WIN_RATE   = 45.0   # %
 MIN_SHARPE     = 0.0
+
+# Minimum number of windows that must independently promote the same param set
+# before it is eligible for production (guards against a single lucky window).
+MIN_PROMOTED_WINDOWS = 3
+
+
+# ── Quarter self-guard ────────────────────────────────────────────────────────
+
+def _first_business_day_of_quarter(today: date) -> date | None:
+    """First Mon–Fri on or after the 1st of the quarter-start month `today`
+    falls in, or None if `today`'s month is not a quarter-start month."""
+    if today.month not in (1, 4, 7, 10):
+        return None
+    d = date(today.year, today.month, 1)
+    while d.weekday() >= 5:      # Sat=5, Sun=6 → advance to the following Monday
+        d += timedelta(days=1)
+    return d
+
+
+def is_first_business_day_of_quarter(today: date | None = None) -> bool:
+    """True only on the first business day of Jan/Apr/Jul/Oct.
+
+    The quarterly cron uses OR-semantics (`1-7 … 1` fires on days 1–7 *or*
+    every Monday of a quarter month), so it can fire several times per quarter.
+    This guard lets exactly one of those firings do real work.
+    """
+    today = today or date.today()
+    fbd = _first_business_day_of_quarter(today)
+    return fbd is not None and today == fbd
 
 
 # ── Backtester (self-contained, no broker) ────────────────────────────────────
@@ -224,10 +253,10 @@ class WindowResult:
     promoted:     bool
 
 
-def walk_forward(data: dict[str, pd.DataFrame]) -> list[WindowResult]:
-    results: list[WindowResult] = []
-
-    # Find the common date range
+def _window_ranges(data: dict[str, pd.DataFrame]) -> list[tuple]:
+    """Generate the (train_start, train_end, validate_end) tuples for the
+    walk-forward. Shared by `walk_forward` and the incumbent/candidate
+    comparison so every param set is scored over identical windows."""
     start = max(df.index.min() for df in data.values())
     end   = min(df.index.max() for df in data.values())
 
@@ -235,18 +264,25 @@ def walk_forward(data: dict[str, pd.DataFrame]) -> list[WindowResult]:
     validate_delta = pd.DateOffset(years=VALIDATE_YEARS)
     slide_delta    = pd.DateOffset(years=SLIDE_YEARS)
 
+    ranges: list[tuple] = []
     cursor = start
-    window_num = 0
-
     while True:
         train_start  = cursor
         train_end    = cursor + train_delta
         validate_end = train_end + validate_delta
-
         if validate_end > end:
             break
+        ranges.append((train_start, train_end, validate_end))
+        cursor += slide_delta
+    return ranges
 
-        window_num += 1
+
+def walk_forward(data: dict[str, pd.DataFrame]) -> list[WindowResult]:
+    results: list[WindowResult] = []
+
+    for window_num, (train_start, train_end, validate_end) in enumerate(
+        _window_ranges(data), start=1
+    ):
         print(f"\nWindow {window_num}: train {train_start.date()} → {train_end.date()}"
               f"  validate → {validate_end.date()}")
 
@@ -304,17 +340,19 @@ def walk_forward(data: dict[str, pd.DataFrame]) -> list[WindowResult]:
             promoted=promoted,
         ))
 
-        cursor += slide_delta
-
     return results
 
 
 # ── Consensus params ──────────────────────────────────────────────────────────
 
-def consensus_params(results: list[WindowResult]) -> dict | None:
+def consensus_params(results: list[WindowResult]) -> tuple[dict, int] | None:
     """
     From all promoted windows, pick the param combo that appeared most
     often as best. Ties broken by average validation Sharpe.
+
+    Returns (params, agreement_count) where agreement_count is the number of
+    windows that independently promoted the winning combo, or None if no
+    window was promoted at all.
     """
     promoted = [r for r in results if r.promoted]
     if not promoted:
@@ -329,7 +367,80 @@ def consensus_params(results: list[WindowResult]) -> dict | None:
         sharpes[key].append(r.validate_metrics["sharpe"])
 
     best_key = max(counts, key=lambda k: (counts[k], sum(sharpes[k]) / len(sharpes[k])))
-    return json.loads(best_key)
+    return json.loads(best_key), counts[best_key]
+
+
+# ── Incumbent comparison ──────────────────────────────────────────────────────
+
+_PROMOTABLE_KEYS = (
+    "fast_period", "slow_period", "trend_sma_period", "rsi_overbought", "stop_loss_pct",
+)
+
+
+def read_incumbent_params(config_path: Path = CONFIG_PATH) -> dict | None:
+    """Read the current production strategy params from config.yaml, or None if
+    the file is missing or does not carry the full promotable param set."""
+    if not config_path.exists():
+        return None
+    with config_path.open() as f:
+        cfg = yaml.safe_load(f) or {}
+    try:
+        return {k: cfg[k] for k in _PROMOTABLE_KEYS}
+    except KeyError:
+        return None
+
+
+def average_validation_sharpe(data: dict[str, pd.DataFrame], params: dict) -> float:
+    """Run one param set across every window's validation slice and return the
+    mean validation Sharpe — the apples-to-apples score used to compare a
+    candidate against the incumbent over identical windows."""
+    sharpes: list[float] = []
+    for _train_start, train_end, validate_end in _window_ranges(data):
+        val_data = {
+            t: df[(df.index >= train_end) & (df.index < validate_end)].copy()
+            for t, df in data.items()
+        }
+        sharpes.append(run_params(val_data, params)["sharpe"])
+    if not sharpes:
+        return 0.0
+    return sum(sharpes) / len(sharpes)
+
+
+def maybe_promote(
+    results: list[WindowResult],
+    data: dict[str, pd.DataFrame],
+    incumbent: dict | None,
+    config_path: Path = CONFIG_PATH,
+) -> None:
+    """Decide whether to write consensus params to config.yaml, enforcing both
+    the consensus-window minimum (3b) and the incumbent comparison (3a)."""
+    consensus = consensus_params(results)
+    if consensus is None:
+        print("Nothing to promote — no windows passed validation.")
+        return
+    candidate, agreement = consensus
+
+    # 3b — require a minimum number of windows to agree before promoting.
+    if agreement < MIN_PROMOTED_WINDOWS:
+        print(f"walk-forward: consensus below minimum threshold, "
+              f"{agreement} windows promoted, no config change")
+        return
+
+    # 3a — never demote the incumbent: candidate must beat it on average
+    # validation Sharpe over the same windows.
+    if incumbent is None:
+        print("walk-forward: incumbent params unavailable, no config change")
+        return
+    cand_sharpe = average_validation_sharpe(data, candidate)
+    inc_sharpe  = average_validation_sharpe(data, incumbent)
+    print(f"  Incumbent avg validation Sharpe: {inc_sharpe:.3f}")
+    print(f"  Candidate avg validation Sharpe: {cand_sharpe:.3f}  "
+          f"({agreement} windows agree)")
+    if cand_sharpe <= inc_sharpe:
+        print("walk-forward: incumbent wins or ties, no config change")
+        return
+
+    promote_to_config(candidate, config_path)
 
 
 # ── Config promotion ──────────────────────────────────────────────────────────
@@ -365,9 +476,22 @@ def main() -> None:
                         help="Write consensus params to config.yaml if validated")
     args = parser.parse_args()
 
+    # Self-guard: bail out unless this is genuinely the first business day of
+    # the quarter, regardless of how many times the broad cron fires. Must run
+    # before any data loading or computation.
+    if not is_first_business_day_of_quarter():
+        print("walk-forward: not first business day of quarter, exiting")
+        return
+
+    # Read the incumbent production params up front, before any promotion could
+    # rewrite config.yaml (3a — incumbent comparison).
+    incumbent = read_incumbent_params()
+
     data    = load_data()
     results = walk_forward(data)
-    best    = consensus_params(results)
+    consensus = consensus_params(results)
+    best      = consensus[0] if consensus else None
+    agreement = consensus[1] if consensus else 0
 
     print("\n── WALK-FORWARD SUMMARY ────────────────────────────────")
     promoted_count = sum(1 for r in results if r.promoted)
@@ -375,18 +499,21 @@ def main() -> None:
     print(f"  Windows promoted:{promoted_count} / {len(results)}")
 
     if best:
-        print(f"\n  Consensus params (from {promoted_count} promoted windows):")
+        print(f"\n  Consensus params ({agreement} windows agree, "
+              f"{promoted_count} promoted total):")
         for k, v in best.items():
             print(f"    {k}: {v}")
     else:
         print("\n  No windows promoted — current params retained.")
 
     output = {
-        "generated_at":     date.today().isoformat(),
-        "windows":          [asdict(r) for r in results],
-        "consensus_params": best,
-        "promoted_count":   promoted_count,
-        "total_windows":    len(results),
+        "generated_at":       date.today().isoformat(),
+        "windows":            [asdict(r) for r in results],
+        "consensus_params":   best,
+        "consensus_windows":  agreement,
+        "min_promoted_windows": MIN_PROMOTED_WINDOWS,
+        "promoted_count":     promoted_count,
+        "total_windows":      len(results),
     }
 
     if args.out:
@@ -396,10 +523,8 @@ def main() -> None:
         out_path.write_text(json.dumps(output, indent=2))
         print(f"\nResults written to {out_path}")
 
-    if args.promote and best:
-        promote_to_config(best)
-    elif args.promote and not best:
-        print("Nothing to promote — no windows passed validation.")
+    if args.promote:
+        maybe_promote(results, data, incumbent)
 
 
 if __name__ == "__main__":
