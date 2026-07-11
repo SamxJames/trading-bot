@@ -13,6 +13,11 @@ places a paper order, and posts the outcome to Discord. Backtesting
 (`python -m bot backtest`) and the weekly summary use yfinance/CSV data only
 and make **zero** live broker calls.
 
+Alongside the daily EMA job, the repo also runs a shadow trader and a strategy
+health monitor (both inside the daily job), a separate **monthly** GEM / dual-
+momentum rebalance, and a **quarterly** walk-forward parameter re-optimisation.
+See "Beyond the daily EMA job" below.
+
 ## Critical rules
 
 - Never hardcode credentials or API keys.
@@ -20,7 +25,7 @@ and make **zero** live broker calls.
 - Never modify `config.yaml` without running the full backtest to validate the change.
 - Never add a new filter without updating `last_filter_snapshot` in `_compute_filter_snapshot()`.
 - Never change exit logic (stop loss, trailing stop, take profit) without updating the relevant tests in `test_ema_cross.py`.
-- Always run pytest before committing — 43 tests must pass.
+- Always run pytest before committing — 87 tests must pass.
 - Always use `[skip ci]` in commit messages to prevent recursive Actions triggers.
 - Always run `git pull` before starting a session to avoid rebase conflicts with Actions commits.
 
@@ -70,6 +75,11 @@ default)` elsewhere silently falls back to `default`.
        `strategy.force_exit_position()`, notify "Order Failed"/"Order
        Rejected", return.
      - Notify "Trade Opened" (BUY) or "Trade Closed" (SELL).
+   - After the ticker loop, still inside `_run`: `ShadowTrader.run()` shadow-
+     trades every ticker against real bars (records to the shadow journals,
+     places no orders), then — if `health_monitoring` (default true) —
+     `_run_health_monitor()` compares live/shadow metrics vs backtest baselines
+     and Discord-alerts on WARNING/CRITICAL.
 3. `job_complete` is appended to `signal_log.jsonl` with elapsed time.
 4. Any unhandled exception anywhere in `_run` → `notify.send("Job Failed", ...)`,
    write a `job_failed` record, then **re-raise** so GitHub Actions marks the run red.
@@ -101,6 +111,39 @@ evaluated by `bot/job.py` after a BUY is emitted.
 - **Exit 2 — Take-profit**: `entry_price + (entry_price × stop_loss_pct/100) × take_profit_rr`
   (set `take_profit_rr=0` to disable).
 
+### Beyond the daily EMA job
+
+Four subsystems run alongside or independently of the daily EMA job:
+
+- **Shadow trading (`bot/shadow.py`)** — runs inside `_run` on every daily job.
+  Evaluates the full 9-filter strategy against real Alpaca bars and records the
+  *hypothetical* entries/exits/P&L to `bot/trade_journal/shadow_trades.csv` /
+  `shadow_log.jsonl` **without placing any order**, closing the backtest-to-live
+  gap. `apply_execution_costs()` here models slippage/commission and is reused by
+  `scripts/backtest_with_costs.py`.
+- **Health monitor (`bot/health_monitor.py`)** — runs at the tail of `_run` when
+  `health_monitoring` (default true). Computes rolling win-rate / Sharpe /
+  drawdown from the journals for each strategy (EMA and GEM separately),
+  compares them to hardcoded 2005-2025 backtest baselines, and emits Discord
+  WARNING/CRITICAL alerts on degradation. `scripts/analyse_trades.py` recomputes
+  the same health block for the dashboard.
+- **GEM / Dual Momentum (`bot/strategies/dual_momentum.py`, `bot/rebalance.py`)**
+  — a **monthly** portfolio strategy, completely separate from the per-bar EMA
+  job. Holds one of SPY / VEU / AGG at 100% based on 12-month absolute + relative
+  momentum (T-bill via `^IRX`); it deliberately does **not** use the 9-filter
+  stack. Run via `python -m bot rebalance` on
+  `.github/workflows/monthly_rebalance.yml` (last trading day of the month).
+  GEM's current holding is read from `bot/trade_journal/rebalance_log.jsonl`, not
+  inferred from the commingled paper account (the EMA bot may also hold SPY).
+- **Walk-forward (`scripts/walk_forward.py`)** — **quarterly** parameter
+  re-optimisation on `.github/workflows/quarterly_reoptimise.yml`. Grid-searches
+  params over rolling 5y-train / 1y-validate windows. With `--promote` it may
+  rewrite `config.yaml`, but only when (a) at least `MIN_PROMOTED_WINDOWS` (3)
+  windows agree on the same param set **and** (b) the candidate's average
+  validation Sharpe beats the current incumbent's over the same windows. A
+  first-business-day-of-quarter self-guard makes the broad cron idempotent. See
+  the walk-forward-params gotcha below.
+
 ### Key files and ownership
 
 - `bot/config.py` — `Settings`, the only place that reads env/`.env`/`config.yaml`.
@@ -115,6 +158,11 @@ evaluated by `bot/job.py` after a BUY is emitted.
 - `bot/execution/broker.py` — async wrapper over `alpaca-py`.
 - `bot/notify.py` — Discord embed sender (no-op if webhook unset).
 - `bot/weekly_summary.py` — Monday Discord performance summary.
+- `bot/shadow.py` — shadow trader + execution-cost model (runs inside `_run`).
+- `bot/health_monitor.py` — strategy-degradation monitor + Discord alerts.
+- `bot/strategies/dual_momentum.py` — GEM monthly dual-momentum strategy.
+- `bot/rebalance.py` — monthly GEM rebalance entry point (`python -m bot rebalance`).
+- `scripts/walk_forward.py` — quarterly walk-forward param re-optimisation.
 - `bot/data/historical.py` / `yfinance_historical.py` — bar fetching (Alpaca / yfinance).
 - `scripts/analyse_trades.py` — builds `docs/analytics.json` for the dashboard.
 - `docs/` — static dashboard, deployed via Vercel (`vercel.json`, `outputDirectory: docs`).
@@ -153,6 +201,13 @@ python -m bot job --dry-run
 # Weekly Discord summary (dry run — prints instead of posting)
 python -m bot weekly --dry-run
 
+# Monthly GEM rebalance (dry run — no orders placed)
+python -m bot rebalance --dry-run
+
+# Walk-forward re-optimisation (yfinance only; --promote is gated by 3-window
+# consensus + incumbent Sharpe comparison + first-business-day-of-quarter guard)
+python scripts/walk_forward.py --out results/
+
 # Dashboard deploy — automatic via Vercel on push to main (vercel.json,
 # outputDirectory: docs); no manual deploy step needed.
 ```
@@ -162,15 +217,16 @@ python -m bot weekly --dry-run
 1. **Pydantic silent drop** — see Config section above. A new `config.yaml`
    key with no matching `Settings` field is silently ignored.
 
-2. **`config.yaml` has duplicate keys — last one wins.** `earnings_blackout_days`,
-   `max_correlation`, `dynamic_correlation`, and `correlation_lookback` are
-   each defined twice. YAML keeps the *last* occurrence with no warning, so
-   the effective values are `earnings_blackout_days=3` (not the `1` near the
-   top), `max_correlation=0.75` (not `0.8`), and **`dynamic_correlation=false`**
-   (not `true`) — the live job is currently using the static correlation
-   matrix, not the dynamic one, despite the Filter 8 section reading
-   "compute correlation matrix from recent returns". Fix carefully and
-   backtest before relying on the dynamic matrix.
+2. **Walk-forward output is advisory — the live params are `fast_period=20` /
+   `stop_loss_pct=2.5`.** These are the validated local params. The quarterly
+   walk-forward once emitted `fast_period=25` / `stop_loss_pct=2.0` and that
+   output was **discarded**: its provenance was a single 6-trade 2018 window
+   winning a 2-way tie, the incumbent was never compared, and the cron's
+   OR-semantics re-ran the job daily on a frozen dataset. `scripts/walk_forward.py`
+   now requires 3-window consensus (`MIN_PROMOTED_WINDOWS`) **and** an incumbent
+   Sharpe comparison before it may rewrite `config.yaml`, and self-guards to the
+   first business day of the quarter. Don't reinstate 25/2.0 without fresh,
+   multi-window evidence.
 
 3. **`bar_not_ready` is a normal, silent no-op.** Alpaca only returns
    completed bars; if today's bar isn't published yet when the cron fires,
@@ -203,8 +259,9 @@ python -m bot weekly --dry-run
 7. **Correlation guard's static matrix is the real fallback today.**
    `bot/correlation.py::_STATIC_CORRELATIONS` is a hardcoded 60-day matrix
    from a point-in-time backtest. `fetch_dynamic()` only replaces it when
-   `dynamic_correlation` is true *and* the yfinance call succeeds — given
-   gotcha #2, that's currently never, so every run uses the static table.
+   `dynamic_correlation` is true *and* the yfinance call succeeds — and
+   `config.yaml` currently sets `dynamic_correlation: false`, so every run uses
+   the static table.
 
 8. **`highest_correlation()` return type vs. `_build_filter_record()`
    check.** `CorrelationGuard.highest_correlation()` returns a
@@ -230,6 +287,14 @@ python -m bot weekly --dry-run
     `_print_summary()` prints Unicode box-drawing characters (`─`) that raise
     `UnicodeEncodeError` on the default Windows cp1252 console. Always run it
     with `--json` and/or `--out docs/` on Windows.
+
+11. **`git rebase` inverts `--ours`/`--theirs`.** The Actions bot commits
+    `docs/analytics.json` frequently, so local work usually has to be rebased
+    onto `origin/main`. During a **rebase**, `--ours` = the branch you're
+    rebasing *onto* (the remote upstream) and `--theirs` = your local commits
+    being replayed — the **opposite** of the merge convention. To keep a local
+    file wholesale through a rebase conflict, use `git checkout <local-ref> --
+    <file>` (or `--theirs`), never `--ours` (which takes the remote version).
 
 ## What not to build
 
@@ -273,3 +338,9 @@ python -m bot weekly --dry-run
   `trades_live.csv` to Google Drive.
 - `.github/workflows/weekly_summary.yml` — runs `python -m bot weekly` every
   Monday and regenerates/commits `docs/analytics.json`.
+- `.github/workflows/monthly_rebalance.yml` — runs `python -m bot rebalance`
+  on the last-trading-day window each month (GEM / dual momentum).
+- `.github/workflows/quarterly_reoptimise.yml` — runs
+  `scripts/walk_forward.py --promote` quarterly. The cron is intentionally broad
+  (days 1–7 / Mondays of quarter months); the script self-guards to the first
+  business day so extra firings are no-ops.
