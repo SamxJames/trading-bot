@@ -1,32 +1,26 @@
 {
-  "generated_at": "2026-07-24T21:44:17.720950+00:00",
+  "generated_at": "2026-07-27T11:30:51.366368+00:00",
   "last_run": {
-    "timestamp": "2026-07-24T21:44:17.175916+00:00",
-    "status": "ok",
-    "run_id": "30128694306",
-    "run_number": "45",
+    "timestamp": null,
+    "status": null,
+    "run_id": "30262183656",
+    "run_number": "10",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
     "blocked_trend_filter": 0,
     "blocked_rsi_overbought": 0
   },
-  "last_run_status": "ok",
+  "last_run_status": null,
   "signal_log": {
-    "available": true,
-    "last_run": "2026-07-24T21:44:17.175916+00:00",
-    "last_run_status": "ok",
+    "available": false,
+    "last_run": null,
+    "last_run_status": null,
     "signals_fired": 0,
     "stop_losses_triggered": 0,
     "blocked_reasons": {},
     "total_blocked": 0,
-    "today_evaluated": [
-      "SPY",
-      "QQQ",
-      "GLD",
-      "AAPL",
-      "NVDA"
-    ],
+    "today_evaluated": [],
     "today_signals": [],
     "filter_blocks_30d": {
       "trend_sma": 0,
@@ -55,13 +49,7 @@
     }
   },
   "open_positions": [],
-  "today_evaluated": [
-    "SPY",
-    "QQQ",
-    "GLD",
-    "AAPL",
-    "NVDA"
-  ],
+  "today_evaluated": [],
   "today_signals": [],
   "filter_blocks_30d": {
     "trend_sma": 0,
@@ -97,11 +85,11 @@
     "max_drawdown_pct": 0.0,
     "equity_curve": [
       {
-        "date": "2026-06-24",
+        "date": "2026-06-27",
         "equity": 100000.0
       },
       {
-        "date": "2026-07-24",
+        "date": "2026-07-27",
         "equity": 100000.0
       }
     ],
@@ -114,11 +102,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-06-24",
+          "date": "2026-06-27",
           "equity": 100000.0
         },
         {
-          "date": "2026-07-24",
+          "date": "2026-07-27",
           "equity": 100000.0
         }
       ]
@@ -132,11 +120,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-06-24",
+          "date": "2026-06-27",
           "equity": 100000.0
         },
         {
-          "date": "2026-07-24",
+          "date": "2026-07-27",
           "equity": 100000.0
         }
       ]
@@ -153,21 +141,21 @@
     "history": [],
     "equity_curve": [
       {
-        "date": "2026-06-24",
+        "date": "2026-06-27",
         "equity": 100000.0
       },
       {
-        "date": "2026-07-24",
+        "date": "2026-07-27",
         "equity": 100000.0
       }
     ],
     "spy_curve": [
       {
-        "date": "2026-06-24",
+        "date": "2026-06-27",
         "equity": 100000.0
       },
       {
-        "date": "2026-07-24",
+        "date": "2026-07-27",
         "equity": 100000.0
       }
     ],
@@ -180,11 +168,11 @@
   "reason": "trades_live.csv not found",
   "equity_curve": [
     {
-      "date": "2026-06-24",
+      "date": "2026-06-27",
       "equity": 100000.0
     },
     {
-      "date": "2026-07-24",
+      "date": "2026-07-27",
       "equity": 100000.0
     }
   ]
