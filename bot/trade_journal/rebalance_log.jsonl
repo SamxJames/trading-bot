@@ -1,0 +1,1 @@
+{"event": "gem_rebalance", "ts": "2026-07-31T21:48:13.205688+00:00", "date": "2026-07-31", "holding": "VEU", "previous_holding": null, "changed": true, "qty": 603.0, "price": 82.85, "allocation_usd": 50000.0, "us_ticker": "SPY", "intl_ticker": "VEU", "bonds_ticker": "AGG", "us_12m": 0.195, "intl_12m": 0.2798, "tbill_12m": 0.0375, "dry_run": false, "orders": ["BUY 603 VEU"]}
