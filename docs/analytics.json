@@ -1,32 +1,26 @@
 {
-  "generated_at": "2026-08-14T21:01:11.945428+00:00",
+  "generated_at": "2026-08-17T08:50:24.949435+00:00",
   "last_run": {
-    "timestamp": "2026-08-14T21:01:11.587731+00:00",
-    "status": "ok",
-    "run_id": "31840497020",
-    "run_number": "60",
+    "timestamp": null,
+    "status": null,
+    "run_id": "32012216463",
+    "run_number": "13",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
     "blocked_trend_filter": 0,
     "blocked_rsi_overbought": 0
   },
-  "last_run_status": "ok",
+  "last_run_status": null,
   "signal_log": {
-    "available": true,
-    "last_run": "2026-08-14T21:01:11.587731+00:00",
-    "last_run_status": "ok",
+    "available": false,
+    "last_run": null,
+    "last_run_status": null,
     "signals_fired": 0,
     "stop_losses_triggered": 0,
     "blocked_reasons": {},
     "total_blocked": 0,
-    "today_evaluated": [
-      "SPY",
-      "QQQ",
-      "GLD",
-      "AAPL",
-      "NVDA"
-    ],
+    "today_evaluated": [],
     "today_signals": [],
     "filter_blocks_30d": {
       "trend_sma": 0,
@@ -55,13 +49,7 @@
     }
   },
   "open_positions": [],
-  "today_evaluated": [
-    "SPY",
-    "QQQ",
-    "GLD",
-    "AAPL",
-    "NVDA"
-  ],
+  "today_evaluated": [],
   "today_signals": [],
   "filter_blocks_30d": {
     "trend_sma": 0,
@@ -97,11 +85,11 @@
     "max_drawdown_pct": 0.0,
     "equity_curve": [
       {
-        "date": "2026-07-15",
+        "date": "2026-07-18",
         "equity": 100000.0
       },
       {
-        "date": "2026-08-14",
+        "date": "2026-08-17",
         "equity": 100000.0
       }
     ],
@@ -114,11 +102,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-07-15",
+          "date": "2026-07-18",
           "equity": 100000.0
         },
         {
-          "date": "2026-08-14",
+          "date": "2026-08-17",
           "equity": 100000.0
         }
       ]
@@ -132,11 +120,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-07-15",
+          "date": "2026-07-18",
           "equity": 100000.0
         },
         {
-          "date": "2026-08-14",
+          "date": "2026-08-17",
           "equity": 100000.0
         }
       ]
@@ -198,11 +186,11 @@
   "reason": "trades_live.csv not found",
   "equity_curve": [
     {
-      "date": "2026-07-15",
+      "date": "2026-07-18",
       "equity": 100000.0
     },
     {
-      "date": "2026-08-14",
+      "date": "2026-08-17",
       "equity": 100000.0
     }
   ]
