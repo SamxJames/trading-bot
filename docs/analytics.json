@@ -1,26 +1,32 @@
 {
-  "generated_at": "2026-08-24T08:54:39.072081+00:00",
+  "generated_at": "2026-08-24T21:04:09.100347+00:00",
   "last_run": {
-    "timestamp": null,
-    "status": null,
-    "run_id": "32708638985",
-    "run_number": "14",
+    "timestamp": "2026-08-24T21:04:08.525114+00:00",
+    "status": "ok",
+    "run_id": "32777386000",
+    "run_number": "66",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
     "blocked_trend_filter": 0,
     "blocked_rsi_overbought": 0
   },
-  "last_run_status": null,
+  "last_run_status": "ok",
   "signal_log": {
-    "available": false,
-    "last_run": null,
-    "last_run_status": null,
+    "available": true,
+    "last_run": "2026-08-24T21:04:08.525114+00:00",
+    "last_run_status": "ok",
     "signals_fired": 0,
     "stop_losses_triggered": 0,
     "blocked_reasons": {},
     "total_blocked": 0,
-    "today_evaluated": [],
+    "today_evaluated": [
+      "SPY",
+      "QQQ",
+      "GLD",
+      "AAPL",
+      "NVDA"
+    ],
     "today_signals": [],
     "filter_blocks_30d": {
       "trend_sma": 0,
@@ -49,7 +55,13 @@
     }
   },
   "open_positions": [],
-  "today_evaluated": [],
+  "today_evaluated": [
+    "SPY",
+    "QQQ",
+    "GLD",
+    "AAPL",
+    "NVDA"
+  ],
   "today_signals": [],
   "filter_blocks_30d": {
     "trend_sma": 0,
@@ -163,7 +175,7 @@
       },
       {
         "date": "2026-08-01",
-        "equity": 51713.94,
+        "equity": 51424.26,
         "holding": "VEU"
       }
     ],
@@ -174,12 +186,12 @@
       },
       {
         "date": "2026-08-01",
-        "equity": 51250.95
+        "equity": 51100.35
       }
     ],
-    "cagr": 48.75,
-    "spy_cagr": 33.8,
-    "total_return_pct": 3.43
+    "cagr": 39.23,
+    "spy_cagr": 29.24,
+    "total_return_pct": 2.85
   },
   "health": {},
   "zero_trades": true,
