@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-08-24T21:04:09.100347+00:00",
+  "generated_at": "2026-08-25T21:01:30.296461+00:00",
   "last_run": {
-    "timestamp": "2026-08-24T21:04:08.525114+00:00",
+    "timestamp": "2026-08-25T21:01:29.838871+00:00",
     "status": "ok",
-    "run_id": "32777386000",
-    "run_number": "66",
+    "run_id": "32898608360",
+    "run_number": "67",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
@@ -14,7 +14,7 @@
   "last_run_status": "ok",
   "signal_log": {
     "available": true,
-    "last_run": "2026-08-24T21:04:08.525114+00:00",
+    "last_run": "2026-08-25T21:01:29.838871+00:00",
     "last_run_status": "ok",
     "signals_fired": 0,
     "stop_losses_triggered": 0,
@@ -97,11 +97,11 @@
     "max_drawdown_pct": 0.0,
     "equity_curve": [
       {
-        "date": "2026-07-25",
+        "date": "2026-07-26",
         "equity": 100000.0
       },
       {
-        "date": "2026-08-24",
+        "date": "2026-08-25",
         "equity": 100000.0
       }
     ],
@@ -114,11 +114,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-07-25",
+          "date": "2026-07-26",
           "equity": 100000.0
         },
         {
-          "date": "2026-08-24",
+          "date": "2026-08-25",
           "equity": 100000.0
         }
       ]
@@ -132,11 +132,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-07-25",
+          "date": "2026-07-26",
           "equity": 100000.0
         },
         {
-          "date": "2026-08-24",
+          "date": "2026-08-25",
           "equity": 100000.0
         }
       ]
@@ -175,7 +175,7 @@
       },
       {
         "date": "2026-08-01",
-        "equity": 51424.26,
+        "equity": 51949.31,
         "holding": "VEU"
       }
     ],
@@ -186,23 +186,23 @@
       },
       {
         "date": "2026-08-01",
-        "equity": 51100.35
+        "equity": 51263.67
       }
     ],
-    "cagr": 39.23,
-    "spy_cagr": 29.24,
-    "total_return_pct": 2.85
+    "cagr": 56.93,
+    "spy_cagr": 34.19,
+    "total_return_pct": 3.9
   },
   "health": {},
   "zero_trades": true,
   "reason": "trades_live.csv not found",
   "equity_curve": [
     {
-      "date": "2026-07-25",
+      "date": "2026-07-26",
       "equity": 100000.0
     },
     {
-      "date": "2026-08-24",
+      "date": "2026-08-25",
       "equity": 100000.0
     }
   ]
