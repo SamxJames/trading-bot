@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-08-30T22:56:35.775913+00:00",
+  "generated_at": "2026-08-31T16:02:11.556209+00:00",
   "last_run": {
     "timestamp": null,
     "status": null,
-    "run_id": "33340455616",
-    "run_number": "7",
+    "run_id": "33411768378",
+    "run_number": "15",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
@@ -85,11 +85,11 @@
     "max_drawdown_pct": 0.0,
     "equity_curve": [
       {
-        "date": "2026-07-31",
+        "date": "2026-08-01",
         "equity": 100000.0
       },
       {
-        "date": "2026-08-30",
+        "date": "2026-08-31",
         "equity": 100000.0
       }
     ],
@@ -102,11 +102,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-07-31",
+          "date": "2026-08-01",
           "equity": 100000.0
         },
         {
-          "date": "2026-08-30",
+          "date": "2026-08-31",
           "equity": 100000.0
         }
       ]
@@ -120,11 +120,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-07-31",
+          "date": "2026-08-01",
           "equity": 100000.0
         },
         {
-          "date": "2026-08-30",
+          "date": "2026-08-31",
           "equity": 100000.0
         }
       ]
@@ -163,7 +163,7 @@
       },
       {
         "date": "2026-08-01",
-        "equity": 51557.03,
+        "equity": 51403.14,
         "holding": "VEU"
       }
     ],
@@ -174,23 +174,23 @@
       },
       {
         "date": "2026-08-01",
-        "equity": 51493.91
+        "equity": 51219.76
       }
     ],
-    "cagr": 43.52,
-    "spy_cagr": 41.46,
-    "total_return_pct": 3.11
+    "cagr": 38.55,
+    "spy_cagr": 32.84,
+    "total_return_pct": 2.81
   },
   "health": {},
   "zero_trades": true,
   "reason": "trades_live.csv not found",
   "equity_curve": [
     {
-      "date": "2026-07-31",
+      "date": "2026-08-01",
       "equity": 100000.0
     },
     {
-      "date": "2026-08-30",
+      "date": "2026-08-31",
       "equity": 100000.0
     }
   ]
