@@ -1,21 +1,21 @@
 {
-  "generated_at": "2026-10-07T00:08:08.100545+00:00",
+  "generated_at": "2026-10-08T00:24:16.658788+00:00",
   "last_run": {
-    "timestamp": "2026-10-07T00:08:06.229279+00:00",
-    "status": "error",
-    "run_id": "37550285136",
-    "run_number": "97",
+    "timestamp": "2026-10-08T00:24:16.180661+00:00",
+    "status": "ok",
+    "run_id": "37707533510",
+    "run_number": "98",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
     "blocked_trend_filter": 0,
     "blocked_rsi_overbought": 0
   },
-  "last_run_status": "error",
+  "last_run_status": "ok",
   "signal_log": {
     "available": true,
-    "last_run": "2026-10-07T00:08:06.229279+00:00",
-    "last_run_status": "error",
+    "last_run": "2026-10-08T00:24:16.180661+00:00",
+    "last_run_status": "ok",
     "signals_fired": 0,
     "stop_losses_triggered": 0,
     "blocked_reasons": {},
@@ -97,11 +97,11 @@
     "max_drawdown_pct": 0.0,
     "equity_curve": [
       {
-        "date": "2026-09-07",
+        "date": "2026-09-08",
         "equity": 100000.0
       },
       {
-        "date": "2026-10-07",
+        "date": "2026-10-08",
         "equity": 100000.0
       }
     ],
@@ -114,11 +114,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-09-07",
+          "date": "2026-09-08",
           "equity": 100000.0
         },
         {
-          "date": "2026-10-07",
+          "date": "2026-10-08",
           "equity": 100000.0
         }
       ]
@@ -132,11 +132,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-09-07",
+          "date": "2026-09-08",
           "equity": 100000.0
         },
         {
-          "date": "2026-10-07",
+          "date": "2026-10-08",
           "equity": 100000.0
         }
       ]
@@ -185,7 +185,7 @@
       },
       {
         "date": "2026-10-01",
-        "equity": 50697.54,
+        "equity": 50116.83,
         "holding": "VEU"
       }
     ],
@@ -204,23 +204,23 @@
       },
       {
         "date": "2026-10-01",
-        "equity": 52275.32
+        "equity": 52149.84
       }
     ],
-    "cagr": 5.65,
-    "spy_cagr": 19.32,
-    "total_return_pct": 1.4
+    "cagr": 0.93,
+    "spy_cagr": 18.19,
+    "total_return_pct": 0.23
   },
   "health": {},
   "zero_trades": true,
   "reason": "trades_live.csv not found",
   "equity_curve": [
     {
-      "date": "2026-09-07",
+      "date": "2026-09-08",
       "equity": 100000.0
     },
     {
-      "date": "2026-10-07",
+      "date": "2026-10-08",
       "equity": 100000.0
     }
   ]
