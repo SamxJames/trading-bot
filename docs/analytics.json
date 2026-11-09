@@ -1,32 +1,26 @@
 {
-  "generated_at": "2026-11-07T00:19:32.556343+00:00",
+  "generated_at": "2026-11-09T18:35:15.195964+00:00",
   "last_run": {
-    "timestamp": "2026-11-07T00:19:32.091091+00:00",
-    "status": "ok",
-    "run_id": "42317459754",
-    "run_number": "120",
+    "timestamp": null,
+    "status": null,
+    "run_id": "42675225214",
+    "run_number": "25",
     "actor": "SamxJames",
     "signals_fired": 0,
     "blocked_total": 0,
     "blocked_trend_filter": 0,
     "blocked_rsi_overbought": 0
   },
-  "last_run_status": "ok",
+  "last_run_status": null,
   "signal_log": {
-    "available": true,
-    "last_run": "2026-11-07T00:19:32.091091+00:00",
-    "last_run_status": "ok",
+    "available": false,
+    "last_run": null,
+    "last_run_status": null,
     "signals_fired": 0,
     "stop_losses_triggered": 0,
     "blocked_reasons": {},
     "total_blocked": 0,
-    "today_evaluated": [
-      "SPY",
-      "QQQ",
-      "GLD",
-      "AAPL",
-      "NVDA"
-    ],
+    "today_evaluated": [],
     "today_signals": [],
     "filter_blocks_30d": {
       "trend_sma": 0,
@@ -55,13 +49,7 @@
     }
   },
   "open_positions": [],
-  "today_evaluated": [
-    "SPY",
-    "QQQ",
-    "GLD",
-    "AAPL",
-    "NVDA"
-  ],
+  "today_evaluated": [],
   "today_signals": [],
   "filter_blocks_30d": {
     "trend_sma": 0,
@@ -97,11 +85,11 @@
     "max_drawdown_pct": 0.0,
     "equity_curve": [
       {
-        "date": "2026-10-08",
+        "date": "2026-10-10",
         "equity": 100000.0
       },
       {
-        "date": "2026-11-07",
+        "date": "2026-11-09",
         "equity": 100000.0
       }
     ],
@@ -114,11 +102,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-10-08",
+          "date": "2026-10-10",
           "equity": 100000.0
         },
         {
-          "date": "2026-11-07",
+          "date": "2026-11-09",
           "equity": 100000.0
         }
       ]
@@ -132,11 +120,11 @@
       "max_drawdown_pct": 0.0,
       "equity_curve": [
         {
-          "date": "2026-10-08",
+          "date": "2026-10-10",
           "equity": 100000.0
         },
         {
-          "date": "2026-11-07",
+          "date": "2026-11-09",
           "equity": 100000.0
         }
       ]
@@ -198,7 +186,7 @@
       },
       {
         "date": "2026-11-01",
-        "equity": 47939.15,
+        "equity": 49139.9,
         "holding": "VEU"
       }
     ],
@@ -221,23 +209,23 @@
       },
       {
         "date": "2026-11-01",
-        "equity": 49336.43
+        "equity": 50480.45
       }
     ],
-    "cagr": -11.75,
-    "spy_cagr": -3.89,
-    "total_return_pct": -4.12
+    "cagr": -5.02,
+    "spy_cagr": 2.88,
+    "total_return_pct": -1.72
   },
   "health": {},
   "zero_trades": true,
   "reason": "trades_live.csv not found",
   "equity_curve": [
     {
-      "date": "2026-10-08",
+      "date": "2026-10-10",
       "equity": 100000.0
     },
     {
-      "date": "2026-11-07",
+      "date": "2026-11-09",
       "equity": 100000.0
     }
   ]
